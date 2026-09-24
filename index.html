@@ -1367,170 +1367,17 @@ function daysCeilGrace(ms){
   if(DB.settings.graceHour && wholeDays>=1 && overHours>0 && overHours<=1) return wholeDays;
   return Math.max(1, Math.ceil(days));
 }
-// Доплата за опоздание с возвратом, если включено в настройках. Четыре варианта начисления
-// ('benevolent'/'blocks6h'/'full'/'daily'), см. OVERDUE_VARIANT_OPTS ниже — два варианта из
-// "семьи 6 часов" (начинают со разового 6-часового блока) и два из "семьи сутки" (начинают
-// сразу со целых суток, без 6-часового блока). По умолчанию все машины используют общие
-// настройки (DB.settings.overdue6hBlocks / DB.settings.overdueVariant — больше не открываются
-// отдельным пунктом в настройках, значения стоят как заданы ранее), но для конкретной
-// машины можно включить свои —
-// car.overdueOverride, car.overdueEnabled, car.overdueVariant (см. openCarOverdueSettings) —
-// они тогда полностью заменяют общие настройки для этой машины.
-// 'benevolent' ("Благородный", по умолчанию, семья "6 часов") —
-//   первый час опоздания бесплатно; от 1 до 7 часов — разовый 6-часовой блок (цена "за 6 часов");
-//   от 7-8 часов — целые сутки (цена "за сутки"), по одним суткам за каждые полные 24 часа опоздания.
-// 'blocks6h' ("Только 6-часовые блоки", семья "6 часов") —
-//   первый час опоздания бесплатно, дальше каждые начавшиеся 6 часов — ещё один блок
-//   (цена "за 6 часов"); на целые сутки не переходит, даже если опоздание больше суток.
-// 'full' ("Полная сумма", семья "сутки") —
-//   до 6 часов опоздания — бесплатно; больше 6 часов (но меньше суток) — 6-часовой блок;
-//   как только прошли целые сутки — сутки + 6-часовой блок, и ещё по одним суткам за каждые
-//   следующие полные 24 часа опоздания.
-// 'daily' ("Сразу по суткам", семья "сутки") —
-//   без 6-часового блока и без льготного часа: как только машина не сдана вовремя — сразу целая
-//   доплата за сутки (цена "за сутки"), и ещё по одной доплате за каждые следующие начавшиеся
-//   24 часа опоздания.
-const OVERDUE_VARIANT_OPTS = [
-  ['benevolent','🕊️','Благородный','1 час опоздания бесплатно → разовый 6-часовой блок (цена «за 6 часов») → с 7–8 часов целые сутки (цена «за сутки»), по одним суткам за каждые полные 24 часа опоздания.'],
-  ['blocks6h','🧱','Только 6-часовые блоки','1 час опоздания бесплатно, дальше каждые начавшиеся 6 часов — ещё один блок «за 6 часов». На сутки не переходит, даже если опоздание больше суток.'],
-  ['full','💯','Полная сумма','До 6 часов опоздания — бесплатно. Больше 6 часов — 6-часовой блок. Как только прошли целые сутки — сутки + 6-часовой блок, и ещё по одним суткам за каждые следующие 24 часа опоздания.'],
-  ['daily','📅','Сразу по суткам','Без 6-часового блока и без льготного часа: как только машина не сдана вовремя — сразу целая доплата «за сутки», и ещё по одной за каждые следующие начавшиеся 24 часа опоздания.'],
-];
-// Сценарий почасового начисления за аренду (раздел 11) — настраиваемый
-// список этапов (DB.settings.rentalAccrualStages), каждый этап один из трёх
-// типов:
-//  - 'free'    — N часов без какой-либо доплаты (льготное время ожидания)
-//  - 'hourly'  — N часов доплаты по часам, по цене «Цена за час» машины
-//                (car.rateHour); час засчитывается только ПОСЛЕ того, как
-//                полностью прошёл — то есть ровно на границе часа (например,
-//                ровно 1:00:00 опоздания) доплата ещё не увеличивается, а
-//                на 1:00:01 — уже увеличивается на один час; так же на любой
-//                следующей часовой границе
-//  - 'package' — доплата становится равна цене пакета (6 часов или сутки,
-//                выбирается в этапе). Если этот этап ПОСЛЕДНИЙ в списке —
-//                он ведёт себя как раньше: с этого момента и до конца он
-//                всегда активен, и за каждый следующий полный период
-//                длительности этого пакета (6 или 24 часа) добавляется ещё
-//                один пакет — по тому же правилу «строго после границы». Если
-//                этот этап НЕ последний — он ведёт себя как обычный
-//                ограниченный этап (как 'free'/'hourly'): активен ровно один
-//                период своей собственной длительности (6 или 24 часа) с
-//                доплатой в один пакет, а как только этот период строго
-//                истёк — начисление переходит («превращается») к следующему
-//                этапу в списке (это и есть цепочка/каскад этапов — блоки
-//                «перетекают» из меньшего в следующий больший)
-// Этапы идут по порядку списка и потребляют время просрочки последовательно.
-// ВАЖНО: этапы не складываются друг с другом — итоговая доплата равна сумме,
-// посчитанной ТОЛЬКО в том этапе, где сейчас находится просрочка (например,
-// «если 3 час истёк — тогда следующая сутка»: доплата целиком становится
-// равна цене суток, а не «2 часа + сутки»). Если список пуст — используется
-// DEFAULT_RENTAL_STAGES.
-const DEFAULT_RENTAL_STAGES = [
-  { type:'free', hours:1 },
-  { type:'hourly', hours:2 },
-  { type:'package', packageKind:'rate' },
-];
-function getRentalStages(){
-  const st = DB.settings.rentalAccrualStages;
-  return (Array.isArray(st) && st.length) ? st : DEFAULT_RENTAL_STAGES;
-}
-function computeStagedAccrual(overMs, car){
-  const rateHour = car?.rateHour || 0;
-  if(rateHour<=0 || overMs<=0) return 0;
-  const stages = getRentalStages();
-  let consumedMs = 0;
-  for(let i=0;i<stages.length;i++){
-    const stage = stages[i];
-    const remainMs = overMs - consumedMs;
-    if(remainMs<=0) return 0;
-    if(stage.type==='package'){
-      const packHours = stage.packageKind==='rate6h' ? 6 : 24;
-      const packPrice = stage.packageKind==='rate6h' ? (car.rate6h||0) : (car.rate||0);
-      const packMs = packHours*3600000;
-      const isLastPack = i===stages.length-1;
-      if(packMs<=0) return 0;
-      if(isLastPack || remainMs<=packMs){
-        // этап сейчас активен: последний пакетный этап повторяется без
-        // ограничения (по одному пакету за каждый следующий полный период),
-        // а непоследний — это ровно один пакет на время своей длительности,
-        // после которой (строго после границы) управление уйдёт дальше
-        const packsCount = isLastPack ? (Math.floor((remainMs-1)/packMs) + 1) : 1;
-        return Math.round(packsCount * packPrice);
-      }
-      consumedMs += packMs; // этап полностью пройден — переходим к следующему
-      continue;
-    }
-    const stageHours = stage.hours||0;
-    const stageMs = stageHours*3600000;
-    const isLast = i===stages.length-1;
-    if(stageMs<=0 || isLast || remainMs<=stageMs){
-      // просрочка сейчас находится именно в этом этапе — он и определяет
-      // итоговую доплату целиком (без суммирования с другими этапами)
-      if(stage.type==='hourly'){
-        const wholeHours = Math.floor((remainMs-1)/3600000);
-        return Math.round(Math.max(0,wholeHours) * rateHour);
-      }
-      return 0; // 'free'
-    }
-    consumedMs += stageMs; // этап полностью пройден — переходим к следующему
-  }
-  return 0;
-}
-function overdueSurcharge(ct){
-  if(!ct || !ct.end || ct.status!=='active') return 0;
-  const car = DB.cars.find(c=>c.id===ct.carId);
-  // Если для машины задана «Цена за час» (car.rateHour) — вместо старой
-  // системы вариантов ниже используется настраиваемый сценарий этапов, см.
-  // computeStagedAccrual()/DEFAULT_RENTAL_STAGES выше и настройки → «Аренда
-  // и долги» → «Начисления за аренду» → «Настроить сценарий начисления».
-  // Работает одинаково для аренды, начатой и как «6 часов», и как «сутки» —
-  // тип исходного пакета не важен. Ничего не сохраняется, это live-расчёт —
-  // если клиент оформляет продление (confirmExtend), ct.end сдвигается
-  // вперёд и накопленная доплата обнуляется сама собой, а в ct.total
-  // добавляется цена пакета продления.
-  const rateHour = car?.rateHour || 0;
-  if(rateHour > 0){
-    const now = new Date(), end = new Date(ct.end);
-    const overMs = now - end;
-    return computeStagedAccrual(overMs, car);
-  }
-  const useCarOverride = !!(car && car.overdueOverride);
-  const enabled = useCarOverride ? !!car.overdueEnabled : !!DB.settings.overdue6hBlocks;
-  if(!enabled) return 0;
-  const variant = useCarOverride ? (car.overdueVariant || 'benevolent') : (DB.settings.overdueVariant || 'benevolent');
-  const now = new Date(), end = new Date(ct.end);
-  const overMs = now - end;
-  const rate6h = car?.rate6h || 0;
-  const dailyRate = car?.rate || 0;
-  const overHoursTotal = overMs/3600000;
-  if(variant==='daily'){
-    if(overMs <= 0) return 0;
-    const extraDays = Math.max(1, Math.ceil(overHoursTotal/24));
-    return extraDays * (dailyRate||0);
-  }
-  if(variant==='blocks6h'){
-    const graceMs = 3600*1000; // 1 час — бесплатно
-    if(overMs <= graceMs) return 0;
-    const hoursAfterGrace = overHoursTotal - 1;
-    const blocks = Math.max(1, Math.ceil(hoursAfterGrace/6));
-    return blocks * (rate6h||0);
-  }
-  if(variant==='full'){
-    if(overHoursTotal <= 6) return 0;
-    const wholeDays = Math.floor(overHoursTotal/24);
-    const remainderHours = overHoursTotal - wholeDays*24;
-    let charge = wholeDays * dailyRate;
-    if(wholeDays>=1 || remainderHours>6) charge += rate6h;
-    return charge;
-  }
-  // 'benevolent' (по умолчанию)
-  const graceMs = 3600*1000; // 1 час — бесплатно
-  if(overMs <= graceMs) return 0;
-  const dayThresholdHours = 7; // с 7-8 часов опоздания — целые сутки вместо 6-часового блока
-  if(overHoursTotal < dayThresholdHours) return rate6h || 0;
-  const extraDays = Math.max(1, Math.ceil(overHoursTotal/24));
-  return extraDays * (dailyRate||0);
-}
+// Автоматическое начисление доплаты за опоздание с возвратом убрано по
+// просьбе пользователя (раунд 16) — полностью, для всех договоров, старых и
+// новых: сама функция overdueSurcharge(), варианты начисления, сценарий
+// этапов (computeStagedAccrual), настройки по машине (car.overdueOverride/
+// overdueEnabled/overdueVariant) и общие настройки (DB.settings.overdue6hBlocks/
+// overdueVariant/rentalAccrualStages) удалены целиком вместе со всеми
+// экранами настроек, которые их показывали. «Цена за час» машины
+// (car.rateHour) тоже удалена — она использовалась только этой системой.
+// Просроченность аренды по-прежнему видна оператору (красный таймер-пилюля
+// «Просрочено на …», timeLeftLabel()) — это просто индикатор времени, он не
+// начисляет никакой доплаты и не тронут этим изменением.
 const THEME_COLORS = {
   amber:{accent:'#f2a93b', accentDim:'#7a5b25'},
   blue:{accent:'#4a90e2', accentDim:'#284a72'},
@@ -1676,7 +1523,6 @@ async function loadAll(){
     if(DB.settings.alarmSettings.volume===undefined) DB.settings.alarmSettings.volume = 70;
     if(DB.settings.alarmSettings.duration===undefined) DB.settings.alarmSettings.duration = 0.4;
     if(DB.settings.graceHour===undefined) DB.settings.graceHour = false;
-    if(DB.settings.overdue6hBlocks===undefined) DB.settings.overdue6hBlocks = false;
     if(!DB.settings.feedback) DB.settings.feedback = { enabled:false, sound:true, vibration:true };
     if(!DB.settings.autoNotify) DB.settings.autoNotify = { rental:true, payment:true, debt:true, complete:true, reminder:true, extend:true };
     if(DB.settings.autoNotify.reminder===undefined) DB.settings.autoNotify.reminder = true;
@@ -1687,7 +1533,6 @@ async function loadAll(){
     if(!DB.settings.docFormat) DB.settings.docFormat = 'image';
     if(!DB.settings.debtMode) DB.settings.debtMode = 'withFines';
     if(!DB.settings.paymentAutoOrder) DB.settings.paymentAutoOrder = ['violation','oldDebt','rental','fine'];
-    if(!DB.settings.overdueVariant) DB.settings.overdueVariant = 'benevolent';
     if(!DB.settings.companyName) DB.settings.companyName = 'XCAR';
     DB.settings.windowsMode = getLocalWindowsMode(); // локальный параметр устройства — источник истины только localStorage этого браузера, не сервер
     if(!DB.settings.carViewMode) DB.settings.carViewMode = 'default';
@@ -1700,7 +1545,7 @@ async function loadAll(){
     }
     if(!DB.settings.dashCardsMigrated2){
       if(DB.settings.dashboardCardOrder){
-        ['overdueDebt','monthAgedDebt'].forEach(id=>{
+        ['monthAgedDebt'].forEach(id=>{
           if(!DB.settings.dashboardCardOrder.includes(id)) DB.settings.dashboardCardOrder.push(id);
         });
       }
@@ -2613,7 +2458,7 @@ function renderDashboard(){
     ${renderDashboardCards()}
   `;
 }
-const DASHBOARD_CARD_IDS_ALL = ['income','clientDebt','overdueDebt','monthAgedDebt','finesUnpaid','finesPaid','repairExpense','clientDiscounts','violationsSum'];
+const DASHBOARD_CARD_IDS_ALL = ['income','clientDebt','monthAgedDebt','finesUnpaid','finesPaid','repairExpense','clientDiscounts','violationsSum'];
 const DASHBOARD_CARD_IDS_DEFAULT = ['income','clientDebt','monthAgedDebt','finesUnpaid','finesPaid','repairExpense','clientDiscounts','violationsSum'];
 let dashboardFilter = { mode:'all', from:null, to:null };
 function dashboardPeriodRange(filter){
@@ -2660,8 +2505,6 @@ function dashboardCardDefs(){
   const totalIncome = DB.contracts.filter(c=>(!c.type||c.type==='rental') && c.status!=='cancelled' && inRange(c.start)).reduce((s2,c)=>s2+(c.total||0),0);
   const totalClientDebt = DB.clients.reduce((s2,cl)=>{ const {debt}=clientDebt(cl.id); return s2+Math.max(0,debt); },0);
   const now = new Date();
-  const overdueDebt = DB.contracts.filter(c=>(!c.type||c.type==='rental') && c.status==='active' && new Date(c.end) < now)
-    .reduce((s2,c)=>s2+(c.total||0)+overdueSurcharge(c),0);
   const cutoff = new Date(now); cutoff.setDate(cutoff.getDate()-30);
   let monthAgedDebt = 0;
   DB.contracts.filter(c=>(!c.type||c.type==='rental') && c.status!=='cancelled' && !c.paid && new Date(c.start) < cutoff)
@@ -2678,7 +2521,6 @@ function dashboardCardDefs(){
   return {
     income: { icon:'💰', label:'Общий доход', value: money(totalIncome), cls:'c-income', iconCls:'icon-teal' },
     clientDebt: { icon:'⚠️', label:'Долг клиентов', value: money(totalClientDebt), cls: totalClientDebt>0?'c-warn':'', iconCls:'icon-orange' },
-    overdueDebt: { icon:'⏰', label:'Просроченные долги', value: money(overdueDebt), cls: overdueDebt>0?'c-warn':'', iconCls:'icon-red' },
     monthAgedDebt: { icon:'📆', label:'Долги старше месяца', value: money(monthAgedDebt), cls: monthAgedDebt>0?'c-warn':'', iconCls:'icon-purple' },
     finesUnpaid: { icon:'🔴', label:'Штрафы неоплаченные', value: money(finesUnpaid), cls: finesUnpaid>0?'c-warn':'', iconCls:'icon-red' },
     finesPaid: { icon:'✅', label:'Штрафы оплаченные', value: money(finesPaid), cls:'c-income', iconCls:'icon-teal' },
@@ -3102,7 +2944,7 @@ function openCarForm(existing){
     openSubscriptionGate('Добавить машину (лимит по тарифу «'+(SUBSCRIPTION.planName||'')+'» — '+SUBSCRIPTION.carLimit+')');
     return;
   }
-  const c = existing || { id:'', make:'', model:'', year:new Date().getFullYear(), plate:'', rate:2000, rate6h:0, rateHour:0, status:'free', vin:'', notes:'' };
+  const c = existing || { id:'', make:'', model:'', year:new Date().getFullYear(), plate:'', rate:2000, rate6h:0, status:'free', vin:'', notes:'' };
   openSheet(`
     <div class="sheet-handle"></div>
     <div class="sheet-head"><div class="sheet-title">${existing?'Редактировать машину':'Новая машина'}</div>
@@ -3120,11 +2962,6 @@ function openCarForm(existing){
       <div class="field-row">
         <div class="field"><label>Цена в сутки (${DB.settings.currency})</label><input id="f_rate" type="number" value="${c.rate}"></div>
         <div class="field"><label>Цена за 6 часов (${DB.settings.currency})</label><input id="f_rate6h" type="number" value="${c.rate6h||0}" placeholder="0 = не используется"></div>
-      </div>
-      <div class="field">
-        <label>Цена за час опоздания/продления (${DB.settings.currency})</label>
-        <input id="f_rateHour" type="number" value="${c.rateHour||0}" placeholder="0 = не используется">
-        <div style="font-size:11px;color:var(--text-faint);margin-top:4px;">Если задано: после окончания оплаченного пакета (6 часов или сутки) доплата за опоздание начисляется по часам, а не блоками. Если клиент оформляет продление на 6 часов или сутки — часовая доплата отменяется, вместо неё добавляется цена пакета.</div>
       </div>
       <div class="field"><label>Статус</label>
         <select id="f_status">
@@ -3333,7 +3170,6 @@ async function saveCar(id){
     plate: document.getElementById('f_plate').value.trim(),
     rate: parseFloat(document.getElementById('f_rate').value)||0,
     rate6h: parseFloat(document.getElementById('f_rate6h').value)||0,
-    rateHour: parseFloat(document.getElementById('f_rateHour').value)||0,
     status: document.getElementById('f_status').value,
     notes: document.getElementById('f_notes').value.trim(),
     photo,
@@ -3379,13 +3215,9 @@ function openCarDetail(id){
         <div class="detail-row"><span class="k">Год выпуска</span><span class="v">${c.year||'—'}</span></div>
         <div class="detail-row"><span class="k">Цена в сутки</span><span class="v">${money(c.rate)}</span></div>
         ${c.rate6h ? `<div class="detail-row"><span class="k">Цена за 6 часов</span><span class="v">${money(c.rate6h)}</span></div>` : ''}
-        ${c.rateHour ? `<div class="detail-row"><span class="k">Цена за час (опоздание)</span><span class="v">${money(c.rateHour)}</span></div>` : ''}
         ${c.vin ? `<div class="detail-row"><span class="k">VIN</span><span class="v">${esc(c.vin)}</span></div>`:''}
         ${c.notes ? `<div class="detail-row"><span class="k">Заметки</span><span class="v">${esc(c.notes)}</span></div>`:''}
         ${ac ? `<div class="detail-row"><span class="k">Возврат</span><span class="v"><span class="timer-pill ${tl.overdue?'overdue':''}">${timerSvg()}${tl.text}</span></span></div>` : ''}
-      </div>
-      <div style="margin-top:12px;">
-        ${settingsMenuItem('⏱️','Начисления за опоздание', carOverdueStatusLabel(c), `openCarOverdueSettings('${c.id}')`)}
       </div>
       ${!ac ? `<div class="btn-row" style="margin-top:16px;">
         ${bookedCt
@@ -3730,9 +3562,18 @@ async function saveClient(id){
   await persist('clients');
   closeSheet(); render(); showToast('Клиент сохранён');
 }
+// Сколько именно осталось должен клиент по конкретному договору аренды —
+// не бинарно (весь total, если ct.paid не true), а с учётом частичной
+// оплаты (ct.paidAmount, задаётся при оформлении нового договора или через
+// «Платёж»/«Продлить»): если оплачено 2500 из 6000 — в долг идут именно
+// оставшиеся 3500, а не все 6000.
+function rentalUnpaidAmount(ct){
+  const paidAmt = ct.paidAmount!=null ? ct.paidAmount : (ct.paid ? (ct.total||0) : 0);
+  return Math.max(0, (ct.total||0) - paidAmt);
+}
 function clientDebt(clientId){
   const rentals = DB.contracts.filter(ct=>ct.clientId===clientId && ct.status!=='cancelled');
-  const unpaidSum = rentals.reduce((s,ct)=> s + (!ct.paid ? ct.total + overdueSurcharge(ct) : 0), 0);
+  const unpaidSum = rentals.reduce((s,ct)=> s + rentalUnpaidAmount(ct), 0);
   const ledger = DB.clientLedger.filter(l=>l.clientId===clientId);
   const finesSum = ledger.filter(l=>l.type==='fine').reduce((s,l)=>s+(l.amount||0),0);
   const violationsSum = ledger.filter(l=>l.type==='violation').reduce((s,l)=>s+(l.amount||0),0);
@@ -3767,6 +3608,19 @@ function openClientDetail(id){
     return s + paidAmt;
   }, 0);
   const totalIncome = paidRentalsTotal + paymentsSum;
+  // Раунд 18: пока у клиента есть ещё АКТИВНАЯ аренда (машину ещё не вернули),
+  // карточка «доход» на этом экране должна показывать не общий накопленный
+  // доход по всей истории клиента, а именно оплату за эту текущую аренду —
+  // после её завершения (ct.status перестаёт быть 'active') карточка сама
+  // вернётся к обычному «Общему доходу» (totalIncome), потому что activeRentals
+  // станет пустым.
+  const activeRentals = rentals.filter(ct=>ct.status==='active' && (!ct.type||ct.type==='rental'));
+  const activeRentalPaid = activeRentals.reduce((s,ct)=>{
+    const paidAmt = ct.paidAmount!=null ? ct.paidAmount : (ct.paid ? (ct.total||0) : 0);
+    return s + paidAmt;
+  }, 0);
+  const incomeCardValue = activeRentals.length ? activeRentalPaid : totalIncome;
+  const incomeCardLabel = activeRentals.length ? 'Оплата за аренду' : 'Общий доход';
   const { avg, count } = computeClientRating(id);
   const unpaidFine = DB.contracts.filter(ct=>ct.clientId===id && ct.type==='fine')
     .reduce((s,ct)=>s+Math.max(0,(ct.total||0)-finePaidAmount(ct.id)),0);
@@ -3795,7 +3649,7 @@ function openClientDetail(id){
       </div>
 
       <div class="summary-row2" style="margin-top:12px;">
-        <div class="summary-card2 c-income"><div class="ic">💰</div><div class="n">${money(totalIncome)}</div><div class="l">Общий доход</div></div>
+        <div class="summary-card2 c-income"><div class="ic">💰</div><div class="n">${money(incomeCardValue)}</div><div class="l">${incomeCardLabel}</div></div>
         <div class="summary-card2 ${debt>0?'c-warn':''}"><div class="ic">📋</div><div class="n">${money(Math.max(0,debt))}</div><div class="l">${debtLabel}</div></div>
         <div class="summary-card2 ${unpaidFine>0?'c-warn':''}"><div class="ic">⚠️</div><div class="n">${money(unpaidFine)}</div><div class="l">Неоплаченный штраф</div></div>
         <div class="summary-card2" style="cursor:pointer;" onclick="openClientRatingsList('${c.id}')"><div class="ic">⭐</div><div class="n">${count?avg.toFixed(1):'—'}</div><div class="l">Оценка клиента</div></div>
@@ -4116,9 +3970,11 @@ function openClientPaymentForm(clientId){
   if(subExpired() || isLoggedOut()){ openSubscriptionGate('Добавить платёж (доход)'); return; }
   const c = DB.clients.find(x=>x.id===clientId); if(!c) return;
   const { debt } = clientDebt(clientId);
-  const { rental: unpaidRental, fine: unpaidFines, violation: unpaidViolations, oldDebt: unpaidOldDebt } = clientUnpaidByCategory(clientId);
-  const amounts = { rental: unpaidRental, fine: unpaidFines, violation: unpaidViolations, oldDebt: unpaidOldDebt };
-  const defaultPurpose = Object.keys(amounts).reduce((best,k)=> amounts[k]>amounts[best] ? k : best, 'rental');
+  // Раунд 18: «За что платёж» по умолчанию — «Общий платёж» (auto), а не
+  // категория с наибольшим долгом, как раньше; сам выбор оформлен как
+  // обычный выпадающий список (select), в том же стиле, что и поля «Клиент»/
+  // «Машина» в остальном приложении, вместо ряда кнопок-переключателей.
+  const defaultPurpose = 'auto';
   openSheet(`
     <div class="sheet-handle"></div>
     <div class="sheet-head"><div class="sheet-title">Платёж · ${esc(c.name)}</div>
@@ -4128,11 +3984,9 @@ function openClientPaymentForm(clientId){
       ${debt>0 ? `<div style="font-size:13px;color:var(--text-dim);margin-bottom:12px;">Текущий долг клиента: <b style="color:var(--danger);">${money(debt)}</b></div>` : `<div style="font-size:13px;color:var(--text-dim);margin-bottom:12px;">У клиента сейчас нет долга.</div>`}
       <div class="field">
         <label>За что платёж</label>
-        <div class="gauge-period-row" id="payPurposeRow" style="width:100%;flex-wrap:wrap;">
-          ${PAY_PURPOSE_ORDER.map(k=>`<button type="button" class="${defaultPurpose===k?'active':''}" data-purpose="${k}" style="flex:1 1 30%;min-width:88px;" onclick="setPayPurpose('${k}','${clientId}')">${PURPOSE_LABELS[k]}</button>`).join('')}
-        </div>
-        <input type="hidden" id="f_pay_purpose" value="${defaultPurpose}">
-        <div style="font-size:11.5px;color:var(--text-faint);margin-top:6px;">Долг за аренду: ${money(unpaidRental)} · Штрафы: ${money(unpaidFines)} · Нарушения: ${money(unpaidViolations)} · Старый долг: ${money(unpaidOldDebt)}</div>
+        <select id="f_pay_purpose" onchange="setPayPurpose(this.value,'${clientId}')">
+          ${PAY_PURPOSE_ORDER.map(k=>`<option value="${k}" ${defaultPurpose===k?'selected':''}>${PURPOSE_LABELS[k]}</option>`).join('')}
+        </select>
         <div id="payAutoHint" style="font-size:11.5px;color:var(--text-dim);margin-top:6px;${defaultPurpose==='auto'?'':'display:none;'}">🧮 Спишет долг по порядку: <b>${esc(paymentOrderSummary())}</b> — порядок можно изменить в настройках → Аренда и долги.</div>
       </div>
       <div class="field" id="payContractField" style="${['fine','violation','oldDebt','rental'].includes(defaultPurpose)?'':'display:none;'}">
@@ -4191,10 +4045,8 @@ function payAutoContractHint(clientId, purpose){
   </div>`;
 }
 function setPayPurpose(purpose, clientId){
-  document.getElementById('f_pay_purpose').value = purpose;
-  document.querySelectorAll('#payPurposeRow button').forEach(btn=>{
-    btn.classList.toggle('active', btn.dataset.purpose===purpose);
-  });
+  const sel = document.getElementById('f_pay_purpose');
+  if(sel) sel.value = purpose;
   const contractField = document.getElementById('payContractField');
   if(contractField){
     if(['fine','violation','oldDebt','rental'].includes(purpose)){
@@ -4716,11 +4568,23 @@ function openContractForm(existing, presetCarId, presetClientId){
             ${lockedStatus ? `<option value="${ct.status}" selected>${ct.status==='done'?'Завершён':'Отменён'}</option>` : ''}
           </select>
         </div>
-        <div class="field" id="paidBox" style="display:${isRepair?'none':'block'};"><label>Оплата</label>
-          <select id="f_paid">
-            <option value="1" ${ct.paid?'selected':''}>Оплачено</option>
-            <option value="0" ${!ct.paid?'selected':''}>Не оплачено</option>
+        <div class="field" id="clientBox" style="display:${isRepair?'none':'block'};">
+          <label style="display:flex;justify-content:space-between;align-items:center;">
+            <span>Клиент</span>
+            <span id="toggleClientBtn" onclick="toggleInlineClient()" style="color:var(--accent);font-weight:700;cursor:pointer;text-transform:none;letter-spacing:0;">+ Новый клиент</span>
+          </label>
+          <select id="f_client">
+            ${DB.clients.length ? `<option value="" ${!ct.clientId?'selected':''} disabled>Выберите клиента</option>` + DB.clients.map(c=>`<option value="${c.id}" ${c.id===ct.clientId?'selected':''}>${esc(c.name)}</option>`).join('') : `<option value="">Нет клиентов — добавьте нового</option>`}
           </select>
+        </div>
+      </div>
+
+      <div id="inlineClientBox" style="display:none;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:12px;margin:-4px 0 14px;">
+        <div class="field" style="margin-bottom:10px;"><label>ФИО нового клиента</label><input id="nc_name" placeholder="Иванов Иван Иванович"></div>
+        <div class="field" style="margin-bottom:10px;"><label>Телефон</label><input id="nc_phone" placeholder="+7 900 000-00-00"></div>
+        <div class="btn-row" style="margin-top:0;">
+          <button class="btn ghost" onclick="toggleInlineClient()">Отмена</button>
+          <button class="btn primary" onclick="quickAddClient()">Сохранить клиента</button>
         </div>
       </div>
 
@@ -4734,25 +4598,6 @@ function openContractForm(existing, presetCarId, presetClientId){
           </div>
         </div>
 
-        <div class="field">
-          <label style="display:flex;justify-content:space-between;align-items:center;">
-            <span>Клиент</span>
-            <span id="toggleClientBtn" onclick="toggleInlineClient()" style="color:var(--accent);font-weight:700;cursor:pointer;text-transform:none;letter-spacing:0;">+ Новый клиент</span>
-          </label>
-          <select id="f_client">
-            ${DB.clients.length ? `<option value="" ${!ct.clientId?'selected':''} disabled>Выберите клиента</option>` + DB.clients.map(c=>`<option value="${c.id}" ${c.id===ct.clientId?'selected':''}>${esc(c.name)}</option>`).join('') : `<option value="">Нет клиентов — добавьте нового</option>`}
-          </select>
-        </div>
-
-        <div id="inlineClientBox" style="display:none;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:12px;margin:-4px 0 14px;">
-          <div class="field" style="margin-bottom:10px;"><label>ФИО нового клиента</label><input id="nc_name" placeholder="Иванов Иван Иванович"></div>
-          <div class="field" style="margin-bottom:10px;"><label>Телефон</label><input id="nc_phone" placeholder="+7 900 000-00-00"></div>
-          <div class="btn-row" style="margin-top:0;">
-            <button class="btn ghost" onclick="toggleInlineClient()">Отмена</button>
-            <button class="btn primary" onclick="quickAddClient()">Сохранить клиента</button>
-          </div>
-        </div>
-
         <div class="field-row">
           <div class="field"><label>Начало аренды</label><input id="f_start" type="datetime-local" value="${ct.start}" onchange="recalcContractTotal()"></div>
           <div class="field"><label>Окончание аренды</label><input id="f_end" type="datetime-local" value="${ct.end}" onchange="recalcContractTotal()"></div>
@@ -4762,6 +4607,11 @@ function openContractForm(existing, presetCarId, presetClientId){
           <div class="field"><label>Итого (${DB.settings.currency})</label><input id="f_total" type="number" value="${ct.total}"></div>
         </div>
         <div class="field"><label>Заметки</label><textarea id="f_ctnotes">${esc(ct.notes)}</textarea></div>
+        <div class="field">
+          <label>Клиент оплатил (${DB.settings.currency})</label>
+          <input id="f_paidnow" type="number" value="${ct.paidAmount!=null?ct.paidAmount:(ct.paid?ct.total:0)}" placeholder="0">
+          <div style="font-size:11px;color:var(--text-faint);margin-top:4px;">По умолчанию 0 ₽ — машина выдана в долг, вся сумма аренды уйдёт в долг клиента. Если оплачена только часть — в долг уйдёт остаток.</div>
+        </div>
       </div>
 
       <div id="repairFieldsBox" style="display:${isRepair?'block':'none'};">
@@ -4790,7 +4640,11 @@ function onContractStatusChange(){
   const isRepair = status==='service';
   document.getElementById('rentalFieldsBox').style.display = isRepair ? 'none' : 'block';
   document.getElementById('repairFieldsBox').style.display = isRepair ? 'block' : 'none';
-  document.getElementById('paidBox').style.display = isRepair ? 'none' : 'block';
+  document.getElementById('clientBox').style.display = isRepair ? 'none' : 'block';
+  if(isRepair){
+    const inlineBox = document.getElementById('inlineClientBox');
+    if(inlineBox) inlineBox.style.display = 'none';
+  }
 }
 function setRentalType(type){
   document.getElementById('f_rentalType').value = type;
@@ -4874,15 +4728,24 @@ async function saveContract(id){
     if(!clientId){ showToast('Выберите или добавьте клиента'); return; }
     if(!start || !end){ showToast('Укажите дату и время начала и конца'); return; }
     if(new Date(end) <= new Date(start)){ showToast('Окончание должно быть позже начала'); return; }
+    const total = parseFloat(document.getElementById('f_total').value)||0;
+    // «Клиент оплатил» (f_paidnow, раунд 17) заменил старый бинарный выбор
+    // Оплачено/Не оплачено: 0 по умолчанию — машина выдана в долг, вся сумма
+    // аренды уходит в долг клиента (rentalUnpaidAmount()/clientDebt()); частичная
+    // оплата — в долг уходит только остаток; сумма ≥ total — договор оплачен
+    // полностью.
+    const paidNowRaw = parseFloat(document.getElementById('f_paidnow').value)||0;
+    const paidAmount = Math.max(0, Math.min(paidNowRaw, total));
     data = {
       carId,
       clientId,
       start, end,
       rentalType: document.getElementById('f_rentalType').value,
       rate: parseFloat(document.getElementById('f_crate').value)||0,
-      total: parseFloat(document.getElementById('f_total').value)||0,
+      total,
       status,
-      paid: document.getElementById('f_paid').value==='1',
+      paid: paidAmount >= total,
+      paidAmount,
       notes: document.getElementById('f_ctnotes').value.trim(),
       type: 'rental',
     };
@@ -4895,6 +4758,15 @@ async function saveContract(id){
   } else {
     const newCt = { id: uid(), notifiedOneHour:false, ...data };
     DB.contracts.push(newCt);
+    // Если при оформлении нового договора сразу указана оплата («Клиент
+    // оплатил» > 0) — записываем её и в общий журнал клиента (DB.clientLedger),
+    // как и в confirmAddPayment()/confirmExtend(), чтобы платёж был виден в
+    // истории клиента. displayOnly:true — чтобы clientDebt() не вычел эту
+    // сумму из долга повторно (она уже учтена через rentalUnpaidAmount()
+    // напрямую по ct.paidAmount).
+    if(data.type!=='repair' && data.paidAmount>0){
+      DB.clientLedger.push({ id: uid(), clientId: data.clientId, type:'payment', amount: data.paidAmount, date: nowDT(), note:'Оплата при оформлении договора', purpose:'rental', rentalId: newCt.id, displayOnly:true });
+    }
     if(data.type!=='repair' && DB.settings.autoNotify?.rental!==false){
       const cl = DB.clients.find(c=>c.id===data.clientId);
       if(cl && cl.phone){
@@ -4913,7 +4785,7 @@ async function saveContract(id){
     else if(data.status==='service') car.status = 'service';
     else if(car.status==='rented' || car.status==='booked' || car.status==='service') car.status = 'free';
   }
-  await persist('contracts'); await persist('cars');
+  await persist('contracts'); await persist('cars'); await persist('clientLedger');
   closeSheet(); render(); showToast(data.type==='repair' ? 'Ремонт сохранён' : 'Договор сохранён');
 }
 function openContractDetail(id){
@@ -4947,9 +4819,7 @@ function openContractDetail(id){
         <div class="detail-row"><span class="k">Тариф</span><span class="v">${ct.rentalType==='6h'?'6 часов':'Сутки'}</span></div>
         <div class="detail-row"><span class="k">Цена по тарифу</span><span class="v">${money(ct.rate)}</span></div>
         <div class="detail-row"><span class="k">Итого</span><span class="v">${money(ct.total)}</span></div>
-        ${ct.status==='active' ? (()=>{ const s=overdueSurcharge(ct); return s>0 ? `<div class="detail-row"><span class="k">Доплата за опоздание</span><span class="v" style="color:var(--danger);">+${money(s)}</span></div>
-        <div class="detail-row"><span class="k">К оплате сейчас</span><span class="v" style="color:var(--danger);font-weight:700;">${money(ct.total+s)}</span></div>` : ''; })()
-        : (ct.overdueCharge>0 ? `<div class="detail-row"><span class="k">Из них доплата за опоздание</span><span class="v" style="color:var(--danger);">${money(ct.overdueCharge)}</span></div>` : '')}
+        ${ct.overdueCharge>0 ? `<div class="detail-row"><span class="k">Из них доплата за опоздание (старый договор)</span><span class="v" style="color:var(--danger);">${money(ct.overdueCharge)}</span></div>` : ''}
         <div class="detail-row"><span class="k">Статус</span><span class="v"><span class="badge ${statusCls}">${statusText}</span></span></div>
         <div class="detail-row"><span class="k">Оплата</span><span class="v"><span class="badge ${ct.paid?'paid':'unpaid'}">${ct.paid?'Оплачено':'Не оплачено'}</span></span></div>
         ${ct.notes ? `<div class="detail-row"><span class="k">Заметки</span><span class="v">${esc(ct.notes)}</span></div>`:''}
@@ -5167,16 +5037,27 @@ async function deleteContract(id){
   DB.contracts = DB.contracts.filter(c=>c.id!==id);
   await persist('contracts'); closeSheet(); render(); showCenterConfirm('Договор удалён');
 }
+// Раунд 18: сумма за ФАКТИЧЕСКИ использованное время (от начала аренды ct.start
+// до текущего момента) — считается той же формулой, что и продление
+// (calcExtendSum), только для прошедшего времени вместо вводимого пользователем
+// срока продления. В отличие от «Сумма аренды» (ct.total, посчитанная с
+// округлением вверх до целых суток/6-часовых блоков от запланированного срока),
+// эта сумма пропорциональна реально прошедшему времени — полезна, когда клиент
+// вернул машину раньше срока и оператор хочет взять плату именно за то время,
+// что машина была у него, а не за весь оплаченный период.
+function calcUsedTimeAmount(ct, car){
+  const elapsedMs = Math.max(0, new Date() - new Date(ct.start));
+  const totalHours = elapsedMs / 3600000;
+  const days = Math.floor(totalHours / 24);
+  const hours = Math.round(totalHours - days*24);
+  return calcExtendSum(ct, car, days, hours);
+}
 function openCompleteContract(id){
   const ct = DB.contracts.find(x=>x.id===id); if(!ct) return;
   const car = DB.cars.find(c=>c.id===ct.carId);
   const cl = DB.clients.find(c=>c.id===ct.clientId);
   const tl = timeLeftLabel(ct.end);
-  // Если аренда просрочена — считаем авто-сумму доплаты по выбранному для машины варианту
-  // начисления (overdueSurcharge) и подставляем её как подсказку в отдельное поле, которое
-  // можно стереть и вписать любую свою цену — тогда именно она, а не расчёт по варианту,
-  // добавится к базовой сумме аренды при завершении (см. confirmComplete).
-  const autoSurcharge = tl.overdue ? overdueSurcharge(ct) : 0;
+  const usedAmount = calcUsedTimeAmount(ct, car);
   openSheet(`
     <div class="sheet-handle"></div>
     <div class="sheet-head"><div class="sheet-title">Завершение аренды</div>
@@ -5191,31 +5072,49 @@ function openCompleteContract(id){
         <div class="detail-row"><span class="k">По плану до</span><span class="v">${fmtDateTime(ct.end)}</span></div>
         <div class="detail-row"><span class="k">По графику</span><span class="v"><span class="timer-pill ${tl.overdue?'overdue':''}">${timerSvg()}${tl.text}</span></span></div>
       </div>
-      <div class="field"><label>Сумма аренды (${DB.settings.currency})</label><input id="f_paysum" type="number" value="${ct.total}"></div>
-      ${tl.overdue ? `
-        <div class="field">
-          <label>Доплата за опоздание (${DB.settings.currency})</label>
-          <input id="f_overdue_charge" type="number" value="${autoSurcharge}">
-        </div>
-        <div style="font-size:11.5px;color:var(--text-faint);margin-top:-8px;margin-bottom:4px;">${car?.rateHour>0 ? `Подставлена сумма по часовой доплате (${money(car.rateHour)}/час)` : `Подставлена сумма по формуле опоздания (${OVERDUE_VARIANT_LABELS[(car?.overdueOverride ? car?.overdueVariant : DB.settings.overdueVariant)||'benevolent']})`} — можно стереть и вписать свою, тогда в итог войдёт именно она.</div>
-      ` : ''}
+      <div class="field-row">
+        <div class="field"><label>Сумма аренды (${DB.settings.currency})</label><input id="f_paysum" type="number" value="${ct.total}"></div>
+        <div class="field"><label>За время использования (${DB.settings.currency})</label><input id="f_paysum_used" type="number" value="${usedAmount}"></div>
+      </div>
       <div class="btn-row">
-        <button class="btn good" onclick="confirmComplete('${ct.id}', true)">Оплатить и завершить</button>
+        <button class="btn good" onclick="openCompleteAmountChoice('${ct.id}', true)">Оплатить и завершить</button>
       </div>
       <div class="btn-row" style="margin-top:10px;">
         <button class="btn ghost" onclick="closeSheet()">Отмена</button>
-        <button class="btn primary" onclick="confirmComplete('${ct.id}', false)">Готово (без оплаты)</button>
+        <button class="btn primary" onclick="openCompleteAmountChoice('${ct.id}', false)">Готово (без оплаты)</button>
       </div>
     </div>
   `);
 }
-async function confirmComplete(id, markPaid){
+// Раунд 18: перед фактическим завершением договора — промежуточный экран
+// выбора, какую из двух сумм (полную сумму аренды или сумму за фактически
+// использованное время) использовать как итоговую ct.total. markPaid из
+// openCompleteContract передаётся насквозь, чтобы кнопка «Оплатить и
+// завершить»/«Готово (без оплаты)» по-прежнему определяла, ставится ли
+// ct.paid=true.
+function openCompleteAmountChoice(id, markPaid){
   const ct = DB.contracts.find(x=>x.id===id); if(!ct) return;
-  const baseSum = parseFloat(document.getElementById('f_paysum').value) || 0;
-  const overdueEl = document.getElementById('f_overdue_charge');
-  const overdueCharge = overdueEl ? (parseFloat(overdueEl.value) || 0) : 0;
-  ct.total = baseSum + overdueCharge;
-  ct.overdueCharge = overdueCharge; // ручная (или подтверждённая авто) сумма доплаты за опоздание — для истории/отчётов
+  const fullSum = parseFloat(document.getElementById('f_paysum')?.value) || 0;
+  const usedSum = parseFloat(document.getElementById('f_paysum_used')?.value) || 0;
+  openSheet(`
+    <div class="sheet-handle"></div>
+    <div class="sheet-head"><div class="sheet-title">Какую сумму указать?</div>
+      <button class="icon-btn" onclick="closeSheet()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="sheet-body">
+      <div style="font-size:12.5px;color:var(--text-dim);margin-bottom:16px;">Выберите, какую сумму использовать при завершении аренды.</div>
+      <div class="btn-row" style="flex-direction:column;gap:10px;">
+        <button class="btn primary" style="width:100%;" onclick="confirmComplete('${id}', ${markPaid}, ${fullSum})">Полная сумма аренды · ${money(fullSum)}</button>
+        <button class="btn ghost" style="width:100%;" onclick="confirmComplete('${id}', ${markPaid}, ${usedSum})">За время использования · ${money(usedSum)}</button>
+      </div>
+      <button class="btn ghost" style="margin-top:14px;width:100%;" onclick="openCompleteContract('${id}')">Назад</button>
+    </div>
+  `);
+}
+async function confirmComplete(id, markPaid, amount){
+  const ct = DB.contracts.find(x=>x.id===id); if(!ct) return;
+  const baseSum = amount!=null ? amount : (parseFloat(document.getElementById('f_paysum')?.value) || 0);
+  ct.total = baseSum;
   ct.status = 'done';
   ct.paid = markPaid ? true : ct.paid;
   ct.end = nowDT();
@@ -6051,6 +5950,7 @@ function openSettings(){
       ${settingsMenuItem('📇','База клиентов', DB.clients.length+' клиент(ов) · поделиться или обновить', `openClientsDbSettings()`)}
       ${settingsMenuItem('💾','Резервное копирование', 'Экспорт JSON / Excel, импорт', `openBackupSettings()`)}
       ${settingsMenuItem('🔔','Сигналы и тарификация', 'Оповещения об окончании аренды', `openAlarmSettings()`)}
+      ${settingsMenuItem('📲','Push-уведомления', __pushState.checked ? (__pushState.subscribed?'Включено':'Выключено') : 'В центр уведомлений телефона', `openPushSettings()`)}
       ${settingsMenuItem('🎨','Цветовая тема', 'Акцентный цвет приложения', `openThemeSettings()`)}
       ${settingsMenuItem('🏁','Иконка приложения', DB.settings.appIcon && APP_ICON_VARIANTS[DB.settings.appIcon] ? APP_ICON_VARIANTS[DB.settings.appIcon].label : 'Текущая (по умолчанию)', `openAppIconSettings()`)}
       ${settingsMenuItem('📄','Формат документов', DOC_FORMAT_LABELS[DB.settings.docFormat] || DOC_FORMAT_LABELS.image, `openDocFormatSettings()`)}
@@ -6058,6 +5958,117 @@ function openSettings(){
       ${settingsMenuItem('⚙️','Общие настройки', 'Валюта, статистика, очистка данных', `openGeneralSettings()`)}
     </div>
   `);
+}
+/* =================== PUSH-УВЕДОМЛЕНИЯ (системный центр уведомлений) =================== */
+// В отличие от WhatsApp-уведомлений клиенту (openGreenApiSettings) — это
+// уведомления ДЛЯ ВАС, владельца/оператора, через Web Push API: приходят в
+// системный центр уведомлений телефона (Android — в любом браузере на базе
+// Chrome; iPhone — только если приложение добавлено на экран «Домой» через
+// Safari, iOS 16.4 и новее — обычная вкладка Safari push не поддерживает).
+// Работает даже когда приложение закрыто, пока сервер и операционная
+// система телефона держат подписку активной. Триггеры (что именно присылает
+// сервер) — server/lib/notifier.js (просроченный возврат, напоминание о
+// ТО, проверяются раз в несколько минут) и server/routes/data.js (новый
+// платёж — сразу при сохранении clientLedger).
+function urlBase64ToUint8Array(base64String){
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g,'+').replace(/_/g,'/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for(let i=0;i<rawData.length;i++) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+let __pushState = { checked:false, subscribed:false, permission: (typeof Notification!=='undefined'?Notification.permission:'default'), supported: ('serviceWorker' in navigator && 'PushManager' in window) };
+async function refreshPushState(){
+  __pushState.supported = ('serviceWorker' in navigator && 'PushManager' in window);
+  if(!__pushState.supported){ __pushState.checked = true; return; }
+  __pushState.permission = Notification.permission;
+  try{
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    __pushState.subscribed = !!sub;
+  }catch(e){ __pushState.subscribed = false; }
+  __pushState.checked = true;
+}
+function isIosStandaloneNeeded(){
+  const ua = navigator.userAgent || '';
+  const isIos = /iPhone|iPad|iPod/.test(ua);
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone===true;
+  return isIos && !isStandalone;
+}
+function openPushSettings(){
+  openSheet(pushSettingsHtml());
+  refreshPushState().then(()=>{
+    if(document.getElementById('overlay').classList.contains('show')) openSheet(pushSettingsHtml());
+  });
+}
+function pushSettingsHtml(){
+  const s = __pushState;
+  const iosWarn = isIosStandaloneNeeded();
+  return `
+    ${subHeadTo('Push-уведомления', 'openSettings()')}
+    <div class="sheet-body">
+      <div style="font-size:12px;color:var(--text-dim);line-height:1.6;margin-bottom:14px;">
+        Уведомления для вас (владельца/оператора) прямо в центр уведомлений телефона — приходят, даже когда приложение закрыто: просроченный возврат аренды, напоминание о ТО, новый платёж от клиента.
+      </div>
+      ${iosWarn ? `
+        <div style="font-size:12px;color:var(--danger);line-height:1.6;margin-bottom:14px;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;">
+          📱 На iPhone уведомления работают только если приложение добавлено на экран «Домой»: в Safari нажмите «Поделиться» → «На экран „Домой“», затем откройте приложение с этого значка и включите уведомления здесь ещё раз.
+        </div>
+      ` : ''}
+      ${!s.supported ? `
+        <div style="font-size:12px;color:var(--text-dim);">Этот браузер не поддерживает push-уведомления.</div>
+      ` : !s.checked ? `
+        <div style="font-size:12px;color:var(--text-dim);">Проверяем текущее состояние…</div>
+      ` : `
+        <div class="settings-item">
+          <div><div class="st">Включить уведомления</div><div class="sd">${s.subscribed ? 'Включено на этом устройстве' : (s.permission==='denied' ? 'Заблокировано в настройках браузера/телефона' : 'Выключено')}</div></div>
+          <label class="switch"><input type="checkbox" id="f_push_on" ${s.subscribed?'checked':''} ${s.permission==='denied'?'disabled':''} onchange="togglePushNotifications(this.checked)"><span class="slider"></span></label>
+        </div>
+        ${s.permission==='denied' ? `<div style="font-size:11.5px;color:var(--text-faint);margin-top:6px;">Уведомления заблокированы на уровне браузера/телефона для этого сайта — разрешите их в системных настройках, затем вернитесь сюда.</div>` : ''}
+      `}
+    </div>
+  `;
+}
+async function togglePushNotifications(on){
+  if(on){ await enablePushNotifications(); } else { await disablePushNotifications(); }
+  openPushSettings();
+}
+async function enablePushNotifications(){
+  try{
+    if(!('serviceWorker' in navigator) || !('PushManager' in window)){ showToast('Браузер не поддерживает push-уведомления'); return; }
+    const permission = await Notification.requestPermission();
+    __pushState.permission = permission;
+    if(permission!=='granted'){ showToast('Разрешение на уведомления не получено'); return; }
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if(!sub){
+      const { publicKey } = await apiFetch('/push/vapid-public-key', { method:'GET' });
+      sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
+    }
+    await apiFetch('/push/subscribe', { method:'POST', body: JSON.stringify({ subscription: sub.toJSON ? sub.toJSON() : sub }) });
+    __pushState.subscribed = true;
+    showToast('Уведомления включены — проверьте центр уведомлений, должно прийти тестовое');
+  }catch(e){
+    console.error('enablePushNotifications', e);
+    showToast('Не удалось включить уведомления: ' + (e.message||''));
+  }
+}
+async function disablePushNotifications(){
+  try{
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if(sub){
+      const endpoint = sub.endpoint;
+      await sub.unsubscribe();
+      await apiFetch('/push/unsubscribe', { method:'POST', body: JSON.stringify({ endpoint }) }).catch(()=>{});
+    }
+    __pushState.subscribed = false;
+    showToast('Уведомления выключены');
+  }catch(e){
+    console.error('disablePushNotifications', e);
+    showToast('Не удалось выключить уведомления');
+  }
 }
 function openAccountSettings(){
   if(isLoggedOut()){
@@ -7410,417 +7421,24 @@ function debtHubHead(title){
     </div>`;
 }
 function openDebtHub(){
-  const hourlyCarsCount = DB.cars.filter(c=>c.rateHour>0).length;
   openSheet(`
     ${subHead('Аренда и долги')}
     <div class="sheet-body">
       <div style="font-size:12px;color:var(--text-dim);line-height:1.5;margin-bottom:14px;">
-        Настройки, связанные с арендой и долгом клиентов: как считать долг, в каком порядке списывать общий платёж, и как начисляется доплата, если машину не вернули вовремя.
+        Настройки, связанные с арендой и долгом клиентов: как считать долг и в каком порядке списывать общий платёж.
       </div>
       ${settingsMenuItem('💳','Учёт долга', DEBT_MODE_LABELS[DB.settings.debtMode] || DEBT_MODE_LABELS.withFines, `openDebtModeSettings()`)}
       ${settingsMenuItem('🧮','Порядок общего платежа', paymentOrderSummary(), `openPaymentOrderSettings()`)}
-      ${settingsMenuItem('🕐','Начисления за аренду', hourlyCarsCount ? `Почасовая доплата включена · ${hourlyCarsCount} ${carWord(hourlyCarsCount)}` : 'Не настроено ни для одной машины', `openRentalAccrualSettings()`)}
-    </div>
-  `);
-}
-// «Начисления за аренду» — почасовая доплата за опоздание, приходит на смену
-// старой системе вариантов (overdueSurcharge всё ещё поддерживает 4 варианта,
-// но общая настройка для них больше не открывается из этого меню — см. раздел
-// про удаление «Штрафы»/«Начисления за опоздание»). Работает так: пока для
-// машины не задана «Цена за час» — используется старая логика по умолчанию
-// (обычно выключена/«Благородный», как было). Как только в карточке машины
-// задан «Цена за час» (>0) — после окончания оплаченного пакета (6 часов или
-// сутки) доплата растёт по часам вместо блоков; при оформлении продления на
-// 6 часов/сутки часовая доплата автоматически заменяется ценой пакета — см.
-// overdueSurcharge(). Настраивается индивидуально по каждой машине (в её
-// карточке), здесь — только обзор и объяснение механики.
-function openRentalAccrualSettings(){
-  const cars = DB.cars.slice().sort((a,b)=>(a.make+a.model).localeCompare(b.make+b.model));
-  openSheet(`
-    ${debtHubHead('Начисления за аренду')}
-    <div class="sheet-body">
-      <div style="font-size:12px;color:var(--text-dim);line-height:1.6;margin-bottom:14px;">
-        Работает для обоих типов аренды — и «6 часов», и «Сутки». Как только оплаченный
-        пакет (6 часов или сутки) закончился, а машина ещё не сдана — доплата за
-        опоздание начисляется по настроенному ниже сценарию (по цене «Цена за час»
-        у машины). Если клиент оформляет продление на 6 часов или на сутки —
-        накопленная доплата отменяется, и вместо неё в счёт добавляется обычная
-        цена пакета продления.<br><br>
-        Цена за час задаётся в карточке каждой машины отдельно (0 = не используется —
-        тогда для этой машины действуют старые общие настройки начисления за
-        опоздание). Нажмите на машину, чтобы задать или изменить цену.
-      </div>
-      ${settingsMenuItem('🧭','Настроить сценарий начисления', rentalStagesSummary(), `openRentalStagesSettings()`)}
-      <div style="font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.03em;margin:18px 0 6px;">Машины с почасовой доплатой</div>
-      ${cars.length ? cars.map(c=>`
-        <div class="settings-item" style="cursor:pointer;" onclick="closeSheet();openCarForm(${JSON.stringify(c).replace(/"/g,'&quot;')})">
-          <div><div class="st">${esc(c.make)} ${esc(c.model)}${c.plate?' · '+esc(c.plate):''}</div><div class="sd">${c.rateHour>0 ? `Цена за час: ${money(c.rateHour)}` : 'Не задано — действуют общие настройки'}</div></div>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="16" height="16" style="color:var(--text-faint);flex-shrink:0;"><path d="M9 18l6-6-6-6"/></svg>
-        </div>
-      `).join('') : `<div style="color:var(--text-dim);font-size:13px;padding:6px 2px;">Машин пока нет</div>`}
-    </div>
-  `);
-}
-const RENTAL_STAGE_TYPE_LABELS = { free:'Без начисления', hourly:'Почасовая доплата', package:'Пакет' };
-// isLast — является ли этот этап последним в текущем списке; от этого
-// зависит, ведёт ли себя пакетный этап как повторяющийся (бессрочный) или
-// как обычный ограниченный этап, который через свою длительность передаёт
-// начисление дальше по цепочке следующему этапу.
-function rentalStageLabel(stage, isLast){
-  if(stage.type==='free') return `Без начисления — ${stage.hours||0} ч`;
-  if(stage.type==='hourly') return `Почасовая доплата — ${stage.hours||0} ч`;
-  if(stage.type==='package'){
-    const kind = stage.packageKind==='rate6h' ? '6 часов' : 'Сутки';
-    return isLast ? `Пакет — ${kind} (дальше повторяется)` : `Пакет — ${kind} (дальше переходит на следующий этап)`;
-  }
-  return '';
-}
-function rentalStageIcon(stage){
-  return stage.type==='free' ? '⏳' : stage.type==='hourly' ? '🕐' : '📦';
-}
-function rentalStagesSummary(){
-  const stages = getRentalStages();
-  return stages.map((stage,i)=>rentalStageLabel(stage, i===stages.length-1)).join(' → ');
-}
-// Экран со списком этапов сценария почасового начисления — можно менять
-// местами (стрелки, как в «Порядок общего платежа»), редактировать,
-// удалять, добавлять новые и сбрасывать к сценарию по умолчанию. Сам расчёт
-// — computeStagedAccrual() выше, рядом с overdueSurcharge().
-function openRentalStagesSettings(){
-  const stages = getRentalStages();
-  openSheet(`
-    ${debtHubHead('Сценарий начисления')}
-    <div class="sheet-body">
-      <div style="font-size:12px;color:var(--text-dim);line-height:1.6;margin-bottom:14px;">
-        Этапы идут по порядку сверху вниз и «съедают» время опоздания один за
-        другим. «Без начисления» — льготное время, доплата не растёт. «Почасовая
-        доплата» — доплата растёт по часам (по цене «Цена за час» машины), час
-        засчитывается только после того, как полностью прошёл. «Пакет» —
-        доплата становится равна цене пакета (6 часов или сутки). Если этот
-        этап последний в списке — он повторяется: добавляется ещё по одному
-        пакету за каждый следующий такой же период. Если после него есть ещё
-        этапы — он действует ровно один такой период (6 часов или сутки), а
-        затем начисление переходит к следующему этапу в списке (блоки
-        «перетекают» друг в друга по цепочке).
-      </div>
-      <div class="card" style="display:block;padding:6px;">
-        ${stages.map((stage,i)=>`
-          <div class="settings-item" style="padding:10px 8px;cursor:pointer;" onclick="openRentalStageEditor(${i})">
-            <div style="display:flex;align-items:center;gap:12px;min-width:0;">
-              <div style="width:24px;height:24px;border-radius:8px;background:var(--surface-2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--text-dim);flex-shrink:0;">${i+1}</div>
-              <div style="min-width:0;"><div class="st">${rentalStageIcon(stage)} ${RENTAL_STAGE_TYPE_LABELS[stage.type]||stage.type}</div><div class="sd">${rentalStageLabel(stage, i===stages.length-1)}</div></div>
-            </div>
-            <div style="display:flex;gap:4px;flex-shrink:0;" onclick="event.stopPropagation();">
-              <button class="icon-btn" style="${i===0?'opacity:.3;pointer-events:none;':''}" onclick="moveRentalStage(${i},-1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" width="16" height="16"><path d="M18 15 12 9l-6 6"/></svg></button>
-              <button class="icon-btn" style="${i===stages.length-1?'opacity:.3;pointer-events:none;':''}" onclick="moveRentalStage(${i},1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" width="16" height="16"><path d="M6 9l6 6 6-6"/></svg></button>
-            </div>
-          </div>
-        `).join('')}
-      </div>
-      <button class="btn ghost" style="margin-top:14px;width:100%;" onclick="openRentalStageEditor(null)">+ Добавить этап</button>
-      <button class="btn ghost" style="margin-top:8px;width:100%;" onclick="resetRentalStages()">Сбросить сценарий по умолчанию</button>
-    </div>
-  `);
-}
-async function moveRentalStage(index, dir){
-  const stages = getRentalStages().slice();
-  const newIndex = index + dir;
-  if(newIndex<0 || newIndex>=stages.length) return;
-  [stages[index], stages[newIndex]] = [stages[newIndex], stages[index]];
-  DB.settings.rentalAccrualStages = stages;
-  await persist('settings');
-  openRentalStagesSettings();
-}
-async function deleteRentalStage(index){
-  const stages = getRentalStages().slice();
-  if(stages.length<=1){ showToast('Должен остаться хотя бы один этап'); return; }
-  stages.splice(index,1);
-  DB.settings.rentalAccrualStages = stages;
-  await persist('settings');
-  openRentalStagesSettings();
-  showToast('Этап удалён');
-}
-async function resetRentalStages(){
-  DB.settings.rentalAccrualStages = JSON.parse(JSON.stringify(DEFAULT_RENTAL_STAGES));
-  await persist('settings');
-  openRentalStagesSettings();
-  showToast('Сценарий сброшен по умолчанию');
-}
-// index===null — добавление нового этапа в конец списка, иначе редактирование
-// существующего этапа с этим индексом.
-function openRentalStageEditor(index){
-  const stages = getRentalStages();
-  const stage = (index!=null && stages[index]) ? stages[index] : { type:'free', hours:1 };
-  // Новый этап всегда добавляется в конец списка (значит станет последним);
-  // у существующего этапа — последний, если он и сейчас последний в списке.
-  // От этого зависит поведение пакета: см. подсказку ниже и
-  // computeStagedAccrual().
-  const willBeLast = index==null ? true : index===stages.length-1;
-  const packageHint = willBeLast
-    ? 'Этот этап сейчас последний в сценарии — он повторяется: за каждый следующий такой же период (6 часов или сутки) добавляется ещё один пакет.'
-    : 'После этого этапа в сценарии есть ещё этапы — поэтому он действует ровно один такой период (6 часов или сутки), а затем начисление переходит к следующему этапу (не повторяется). Чтобы этот пакет повторялся без ограничения, переместите его на последнее место (стрелкой ▼ в списке этапов).';
-  openSheet(`
-    ${debtHubHead(index==null ? 'Новый этап' : `Этап ${index+1}`)}
-    <div class="sheet-body">
-      <div class="field">
-        <label>Тип этапа</label>
-        <select id="stg_type" onchange="updateStageEditorFields()">
-          <option value="free" ${stage.type==='free'?'selected':''}>Без начисления</option>
-          <option value="hourly" ${stage.type==='hourly'?'selected':''}>Почасовая доплата</option>
-          <option value="package" ${stage.type==='package'?'selected':''}>Пакет (6 часов / сутки)</option>
-        </select>
-      </div>
-      <div class="field" id="stg_hours_field" style="${stage.type==='package'?'display:none;':''}">
-        <label>Длительность этапа, часов</label>
-        <input id="stg_hours" type="number" min="0" step="1" value="${stage.hours||1}">
-        <div style="font-size:11px;color:var(--text-faint);margin-top:4px;">Сколько часов опоздания «занимает» этот этап, прежде чем начнётся следующий.</div>
-      </div>
-      <div class="field" id="stg_package_field" style="${stage.type==='package'?'':'display:none;'}">
-        <label>Какой пакет начисляется</label>
-        <select id="stg_packageKind">
-          <option value="rate6h" ${stage.packageKind==='rate6h'?'selected':''}>6 часов</option>
-          <option value="rate" ${(stage.packageKind||'rate')==='rate'?'selected':''}>Сутки</option>
-        </select>
-        <div style="font-size:11px;color:var(--text-faint);margin-top:4px;">${packageHint}</div>
-      </div>
-      <button class="btn primary" style="width:100%;margin-top:10px;" onclick="saveRentalStage(${index==null?'null':index})">Сохранить</button>
-      ${index!=null && stages.length>1 ? `<button class="btn ghost" style="width:100%;margin-top:8px;color:var(--danger);" onclick="deleteRentalStage(${index})">Удалить этап</button>` : ''}
-    </div>
-  `);
-}
-function updateStageEditorFields(){
-  const type = document.getElementById('stg_type').value;
-  document.getElementById('stg_hours_field').style.display = type==='package' ? 'none' : '';
-  document.getElementById('stg_package_field').style.display = type==='package' ? '' : 'none';
-}
-async function saveRentalStage(index){
-  const type = document.getElementById('stg_type').value;
-  const stages = getRentalStages().slice();
-  let stage;
-  if(type==='package'){
-    stage = { type:'package', packageKind: document.getElementById('stg_packageKind').value };
-  } else {
-    const hours = Math.max(0, parseFloat(document.getElementById('stg_hours').value)||0);
-    stage = { type, hours };
-  }
-  if(index==null) stages.push(stage);
-  else stages[index] = stage;
-  DB.settings.rentalAccrualStages = stages;
-  await persist('settings');
-  openRentalStagesSettings();
-  showToast('Сохранено');
-}
-function openDebtModeSettings(){
-  const cur = DB.settings.debtMode || 'withFines';
-  const opts = [
-    ['withFines','💰','С учётом штрафов','Долг клиента (в дашборде, напоминаниях и т.д.) считается вместе со штрафами'],
-    ['withoutFines','🧾','Без штрафов','Долг клиента считается без штрафов — только аренда, нарушения и старый долг. На карточке клиента при этом всегда показаны оба значения.'],
-  ];
-  openSheet(`
-    ${debtHubHead('Учёт долга')}
-    <div class="sheet-body">
-      <div style="font-size:12px;color:var(--text-dim);line-height:1.5;margin-bottom:14px;">
-        Какой долг клиента использовать как основной — в дашборде, списках должников и WhatsApp-напоминаниях. На карточке клиента всегда видны обе суммы: «Долг + штрафы» и «Долг без штрафов».
-      </div>
-      ${opts.map(([key,icon,label,desc])=>`
-        <div class="settings-item" style="cursor:pointer;align-items:flex-start;" onclick="setDebtMode('${key}')">
-          <div style="display:flex;align-items:flex-start;gap:12px;min-width:0;">
-            <div style="font-size:19px;width:26px;text-align:center;flex-shrink:0;margin-top:1px;">${icon}</div>
-            <div style="min-width:0;"><div class="st">${label}</div><div class="sd">${desc}</div></div>
-          </div>
-          ${cur===key ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" width="18" height="18" style="color:var(--accent);flex-shrink:0;margin-top:3px;"><path d="M20 6 9 17l-5-5"/></svg>` : ''}
-        </div>
-      `).join('')}
-    </div>
-  `);
-}
-async function setDebtMode(key){
-  DB.settings.debtMode = key;
-  await persist('settings');
-  openDebtModeSettings();
-  render();
-}
-function openPaymentOrderSettings(){
-  const order = paymentAutoOrder();
-  openSheet(`
-    ${debtHubHead('Порядок общего платежа')}
-    <div class="sheet-body">
-      <div style="font-size:12px;color:var(--text-dim);line-height:1.5;margin-bottom:14px;">
-        При платеже «🧮 Общий платёж» сумма автоматически списывается по этому порядку: сначала первая категория, остаток переходит на следующую и так далее. Стрелками можно поменять порядок.
-      </div>
-      <div class="card" style="display:block;padding:6px;">
-        ${order.map((key,i)=>`
-          <div class="settings-item" style="padding:10px 8px;">
-            <div style="display:flex;align-items:center;gap:12px;min-width:0;">
-              <div style="width:24px;height:24px;border-radius:8px;background:var(--surface-2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--text-dim);flex-shrink:0;">${i+1}</div>
-              <div class="st">${PAYMENT_ORDER_ICONS[key]||''} ${PAYMENT_ORDER_LABELS[key]||key}</div>
-            </div>
-            <div style="display:flex;gap:4px;flex-shrink:0;">
-              <button class="icon-btn" style="${i===0?'opacity:.3;pointer-events:none;':''}" onclick="movePaymentOrder(${i},-1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" width="16" height="16"><path d="M18 15 12 9l-6 6"/></svg></button>
-              <button class="icon-btn" style="${i===order.length-1?'opacity:.3;pointer-events:none;':''}" onclick="movePaymentOrder(${i},1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" width="16" height="16"><path d="M6 9l6 6 6-6"/></svg></button>
-            </div>
-          </div>
-        `).join('')}
-      </div>
-      <button class="btn ghost" style="margin-top:14px;width:100%;" onclick="resetPaymentOrder()">Сбросить порядок по умолчанию</button>
-    </div>
-  `);
-}
-async function movePaymentOrder(index, dir){
-  const order = paymentAutoOrder().slice();
-  const newIndex = index + dir;
-  if(newIndex<0 || newIndex>=order.length) return;
-  [order[index], order[newIndex]] = [order[newIndex], order[index]];
-  DB.settings.paymentAutoOrder = order;
-  await persist('settings');
-  openPaymentOrderSettings();
-}
-async function resetPaymentOrder(){
-  DB.settings.paymentAutoOrder = ['violation','oldDebt','rental','fine'];
-  await persist('settings');
-  openPaymentOrderSettings();
-  showToast('Порядок сброшен по умолчанию');
-}
-const OVERDUE_VARIANT_LABELS = { benevolent: 'Благородный', blocks6h: 'Только 6-часовые блоки', full: 'Полная сумма', daily: 'Сразу по суткам' };
-const OVERDUE_VARIANT_FAMILIES = [
-  { title: 'Семья «начало с 6 часов»', keys: ['benevolent','blocks6h'] },
-  { title: 'Семья «начало сразу с суток»', keys: ['full','daily'] },
-];
-// Общий рендер списка из 4 вариантов начисления (сгруппированных по 2 «семьям»),
-// переиспользуется и в общих настройках (openOverdueAccrualSettings), и в
-// настройках конкретной машины (openCarOverdueSettings) — onSelectFn получает
-// ключ выбранного варианта строкой, например "setOverdueVariant" или
-// "(key)=>setCarOverdueVariant('carId',key)".
-function overdueVariantOptionsHtml(selectedVariant, onSelectExpr){
-  return OVERDUE_VARIANT_FAMILIES.map(fam => `
-    <div style="font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.03em;margin:14px 0 6px;">${fam.title}</div>
-    ${fam.keys.map(key=>{
-      const opt = OVERDUE_VARIANT_OPTS.find(o=>o[0]===key);
-      const [k,icon,label,desc] = opt;
-      return `
-        <div class="settings-item" style="cursor:pointer;align-items:flex-start;" onclick="${onSelectExpr.replace('__KEY__', k)}">
-          <div style="display:flex;align-items:flex-start;gap:12px;min-width:0;">
-            <div style="font-size:19px;width:26px;text-align:center;flex-shrink:0;margin-top:1px;">${icon}</div>
-            <div style="min-width:0;"><div class="st">${label}</div><div class="sd">${desc}</div></div>
-          </div>
-          ${selectedVariant===k ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" width="18" height="18" style="color:var(--accent);flex-shrink:0;margin-top:3px;"><path d="M20 6 9 17l-5-5"/></svg>` : ''}
-        </div>
-      `;
-    }).join('')}
-  `).join('');
-}
-function openOverdueAccrualSettings(){
-  const variant = DB.settings.overdueVariant || 'benevolent';
-  const on = !!DB.settings.overdue6hBlocks;
-  openSheet(`
-    ${debtHubHead('Начисления за опоздание')}
-    <div class="sheet-body">
-      <div style="font-size:12px;color:var(--text-dim);line-height:1.6;margin-bottom:14px;">
-        Доплата за опоздание с возвратом аренды автоматически добавляется в долг клиента, пока аренда просрочена. Это общие настройки для всех машин — для конкретной машины их можно переопределить в карточке машины («Начисления за опоздание»).
-      </div>
       <div class="settings-item">
-        <div><div class="st">Льготный час при опоздании</div><div class="sd">До 1 часа опоздания — без доплаты за сутки при расчёте суммы аренды</div></div>
-        <label class="switch"><input type="checkbox" id="f_grace" ${DB.settings.graceHour?'checked':''}><span class="slider"></span></label>
-      </div>
-      <div class="settings-item">
-        <div><div class="st">Доплата за опоздание в долг</div><div class="sd">Включить автоматическое начисление доплаты за опоздание</div></div>
-        <label class="switch"><input type="checkbox" id="f_overdue6h" ${on?'checked':''} onchange="toggleOverdueVariantVisibility()"><span class="slider"></span></label>
-      </div>
-      <button class="btn primary" style="margin-top:12px;" onclick="saveOverdueAccrualSettings()">Сохранить</button>
-
-      <div id="overdueVariantBlock" style="margin-top:22px;${on?'':'opacity:.45;pointer-events:none;'}">
-        <div class="section-title" style="margin-top:0;">Вариант начисления</div>
-        ${overdueVariantOptionsHtml(variant, "setOverdueVariant('__KEY__')")}
+        <div><div class="st">Льготный час при подсчёте суток</div><div class="sd">До 1 часа сверх целых суток — округление количества дней аренды вниз, без лишних суток</div></div>
+        <label class="switch"><input type="checkbox" id="f_grace_inline" ${DB.settings.graceHour?'checked':''} onchange="toggleGraceHour(this.checked)"><span class="slider"></span></label>
       </div>
     </div>
   `);
 }
-async function setOverdueVariant(key){
-  DB.settings.overdueVariant = key;
+async function toggleGraceHour(on){
+  DB.settings.graceHour = !!on;
   await persist('settings');
-  openOverdueAccrualSettings();
-  render();
-}
-function toggleOverdueVariantVisibility(){
-  const block = document.getElementById('overdueVariantBlock');
-  if(!block) return;
-  const on = document.getElementById('f_overdue6h').checked;
-  block.style.opacity = on ? '1' : '.45';
-  block.style.pointerEvents = on ? 'auto' : 'none';
-}
-
-// ---- Начисления за опоздание — свои настройки на конкретную машину ----
-// По умолчанию машина использует общие настройки (DB.settings.overdue6hBlocks/
-// overdueVariant). Здесь можно включить car.overdueOverride и задать для этой
-// машины отдельно car.overdueEnabled (кнопка вкл/выкл) и car.overdueVariant
-// (тот же выбор «Благородный»/«Полная сумма», что и в общих настройках) —
-// см. overdueSurcharge(), которая при расчёте сначала проверяет override машины.
-function carOverdueStatusLabel(car){
-  if(car.overdueOverride){
-    return car.overdueEnabled ? `Свои настройки · ${OVERDUE_VARIANT_LABELS[car.overdueVariant]||OVERDUE_VARIANT_LABELS.benevolent}` : 'Свои настройки · Выключено';
-  }
-  return DB.settings.overdue6hBlocks ? `Как в общих настройках · ${OVERDUE_VARIANT_LABELS[DB.settings.overdueVariant]||OVERDUE_VARIANT_LABELS.benevolent}` : 'Как в общих настройках · Выключено';
-}
-function openCarOverdueSettings(carId){
-  const car = DB.cars.find(c=>c.id===carId); if(!car) return;
-  const override = !!car.overdueOverride;
-  const enabled = override ? !!car.overdueEnabled : !!DB.settings.overdue6hBlocks;
-  const variant = override ? (car.overdueVariant || 'benevolent') : (DB.settings.overdueVariant || 'benevolent');
-  const globalStatus = DB.settings.overdue6hBlocks
-    ? `включено · ${OVERDUE_VARIANT_LABELS[DB.settings.overdueVariant] || OVERDUE_VARIANT_LABELS.benevolent}`
-    : 'выключено';
-  openSheet(`
-    <div class="sheet-handle"></div>
-    <div class="sheet-head">
-      <button class="icon-btn" onclick="openCarDetail('${car.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
-      <div class="sheet-title" style="flex:1;margin-left:2px;">Начисления за опоздание</div>
-      ${iconBtn('close','closeSheet()','Закрыть')}
-    </div>
-    <div class="sheet-body">
-      <div style="font-size:12px;color:var(--text-dim);line-height:1.6;margin-bottom:14px;">
-        ${esc(car.make)} ${esc(car.model)}${car.plate?' · '+esc(car.plate):''}. Сейчас по общим настройкам (без переопределения для этой машины): <b>${globalStatus}</b>. Здесь можно задать свои правила только для этой машины, не трогая остальной автопарк.
-      </div>
-      ${car.rateHour>0 ? `<div style="font-size:12px;color:var(--danger);line-height:1.6;margin-bottom:14px;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;">⚠️ У этой машины в карточке задана «Цена за час» (${money(car.rateHour)}) — почасовая доплата (Настройки → Аренда и долги → «Начисления за аренду») полностью заменяет всё, что настроено ниже, пока цена за час не обнулена в карточке машины.</div>` : ''}
-      <div class="settings-item">
-        <div><div class="st">Свои настройки для этой машины</div><div class="sd">Не использовать общие настройки — включить/выключить доплату и выбрать вариант начисления отдельно для этой машины</div></div>
-        <label class="switch"><input type="checkbox" id="f_car_overdue_override" ${override?'checked':''} onchange="toggleCarOverdueOverrideVisibility()"><span class="slider"></span></label>
-      </div>
-      <div class="settings-item">
-        <div><div class="st">Доплата за опоздание в долг</div><div class="sd">Включить автоматическое начисление доплаты для этой машины</div></div>
-        <label class="switch"><input type="checkbox" id="f_car_overdue_on" ${enabled?'checked':''}><span class="slider"></span></label>
-      </div>
-      <button class="btn primary" style="margin-top:12px;width:100%;" onclick="saveCarOverdueToggles('${car.id}')">Сохранить</button>
-
-      <div id="carOverdueVariantBlock" style="margin-top:22px;${override?'':'opacity:.45;pointer-events:none;'}">
-        <div class="section-title" style="margin-top:0;">Вариант начисления</div>
-        ${overdueVariantOptionsHtml(variant, `setCarOverdueVariant('${car.id}','__KEY__')`)}
-      </div>
-    </div>
-  `);
-}
-function toggleCarOverdueOverrideVisibility(){
-  const block = document.getElementById('carOverdueVariantBlock');
-  if(!block) return;
-  const on = document.getElementById('f_car_overdue_override').checked;
-  block.style.opacity = on ? '1' : '.45';
-  block.style.pointerEvents = on ? 'auto' : 'none';
-}
-async function saveCarOverdueToggles(carId){
-  const car = DB.cars.find(c=>c.id===carId); if(!car) return;
-  car.overdueOverride = document.getElementById('f_car_overdue_override').checked;
-  car.overdueEnabled = document.getElementById('f_car_overdue_on').checked;
-  if(!car.overdueVariant) car.overdueVariant = 'benevolent';
-  await persist('cars');
-  showToast('Настройки сохранены');
-  render();
-  openCarOverdueSettings(carId);
-}
-async function setCarOverdueVariant(carId, key){
-  const car = DB.cars.find(c=>c.id===carId); if(!car) return;
-  car.overdueVariant = key;
-  await persist('cars');
-  render();
-  openCarOverdueSettings(carId);
 }
 
 function drawCarsStatusCanvas(){
@@ -7984,7 +7602,7 @@ async function sendDebtToClient(carId){
   if(!cl || !cl.phone){ showToast('У клиента не указан телефон'); return; }
   if(!DB.settings.greenApi?.enabled){ showToast('Сначала подключите WhatsApp в настройках'); return; }
   const car = DB.cars.find(c=>c.id===carId);
-  const due = ac.paid ? 0 : currentDueAmount(ac) + overdueSurcharge(ac);
+  const due = ac.paid ? 0 : currentDueAmount(ac);
   const msg = `Здравствуйте, ${cl.name}!\n\nНакопленная сумма к оплате за аренду ${car?car.make+' '+car.model:''} на текущий момент: ${money(due)}.\nАренда началась: ${fmtDateTime(ac.start)}.`;
   showToast('Отправка...');
   const r = await sendWhatsApp(cl.phone, msg);
@@ -7993,7 +7611,7 @@ async function sendDebtToClient(carId){
 function drawClientReportCanvas(client){
   const rentals = DB.contracts.filter(ct=>ct.clientId===client.id).sort((a,b)=> new Date(b.start)-new Date(a.start));
   const totalSpent = rentals.reduce((s,ct)=> s + (ct.status!=='cancelled'?ct.total:0), 0);
-  const unpaidSum = rentals.reduce((s,ct)=> s + (ct.status!=='cancelled' && !ct.paid ? ct.total : 0), 0);
+  const unpaidSum = rentals.reduce((s,ct)=> s + (ct.status!=='cancelled' ? rentalUnpaidAmount(ct) : 0), 0);
   const rows = rentals.slice(0,8);
   const W=860, H=560+rows.length*54;
   const canvas = document.createElement('canvas'); canvas.width=W; canvas.height=H;
@@ -8065,7 +7683,7 @@ async function shareClientReport(clientId){
 function buildClientReportMessage(client){
   const rentals = DB.contracts.filter(ct=>ct.clientId===client.id).sort((a,b)=> new Date(b.start)-new Date(a.start));
   const totalSpent = rentals.reduce((s,ct)=> s + (ct.status!=='cancelled'?ct.total:0), 0);
-  const unpaidSum = rentals.reduce((s,ct)=> s + (ct.status!=='cancelled' && !ct.paid ? ct.total : 0), 0);
+  const unpaidSum = rentals.reduce((s,ct)=> s + (ct.status!=='cancelled' ? rentalUnpaidAmount(ct) : 0), 0);
   const brand = DB.settings.companyName || 'XCAR';
   let msg = `Здравствуйте, ${client.name}! 📋\n\nВаш отчёт по аренде — ${brand}\n🚗 Всего аренд: ${rentals.length}\n💰 Всего потрачено: ${money(totalSpent)}`;
   if(unpaidSum>0) msg += `\n⚠️ Не оплачено: ${money(unpaidSum)}`;
@@ -8473,13 +8091,6 @@ function vibrateFeedback(kind){
 function feedback(kind){
   playFeedbackSound(kind);
   vibrateFeedback(kind);
-}
-async function saveOverdueAccrualSettings(){
-  DB.settings.graceHour = document.getElementById('f_grace').checked;
-  DB.settings.overdue6hBlocks = document.getElementById('f_overdue6h').checked;
-  await persist('settings');
-  render();
-  showToast('Настройки начислений за опоздание сохранены');
 }
 async function setThemeColor(name){
   DB.settings.themeColor = name;
