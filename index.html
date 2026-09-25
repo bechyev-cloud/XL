@@ -10,7 +10,29 @@
      window.XCAR_API_BASE = 'https://xcar-api.onrender.com/api';
    Без этого регистрация, вход и синхронизация данных между устройствами
    работать не будут — приложение покажет ошибку на экране входа. */
-window.XCAR_API_BASE = 'https://xcar-server.onrender.com/api';
+window.XCAR_DEFAULT_API_BASE = 'https://xcar-ser.onrender.com/api';
+/* Сервер можно сменить прямо в приложении: Настройки → Серверы (в самом низу).
+   Список серверов и выбранный активный хранятся на ЭТОМ устройстве
+   (localStorage, ключ xcar_servers_v1). Здесь — синхронно, до загрузки
+   остального кода, подставляем адрес активного сервера. */
+(function(){
+  var base = window.XCAR_DEFAULT_API_BASE;
+  // Приложение открыто по адресу в домашнем Wi-Fi (http://192.168.x.x:8080 —
+  // его раздаёт сам XCAR server) — по умолчанию работаем с этим же сервером.
+  window.XCAR_LAN_PAGE = location.protocol==='http:' &&
+    /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(location.hostname);
+  if(window.XCAR_LAN_PAGE) base = location.origin + '/api';
+  try{
+    var cfg = JSON.parse(localStorage.getItem('xcar_servers_v1') || 'null');
+    if(cfg && cfg.servers && cfg.servers.length){
+      for(var i=0;i<cfg.servers.length;i++){
+        var sv = cfg.servers[i];
+        if(sv && sv.id===cfg.activeId && sv.url){ base = sv.url; break; }
+      }
+    }
+  }catch(e){}
+  window.XCAR_API_BASE = base;
+})();
 </script>
 <script>
 /* Apply the saved color theme to <html> synchronously, before first paint, so the page never
@@ -338,6 +360,28 @@ header.top{
 .icon-btn.wa-on{background:rgba(62,201,167,0.18);border-color:rgba(62,201,167,0.35);color:var(--accent-2);}
 .icon-btn.spinning svg{animation:iconSpin .8s linear infinite;}
 @keyframes iconSpin{to{transform:rotate(360deg);}}
+/* Раздел 20: обновление с сервером (кнопка "Обновить с сервером" и
+   pull-to-refresh) теперь идёт минимум 3 секунды с заметной анимацией —
+   раньше индикатором была только мигающая иконка в шапке, теперь ещё и
+   отдельный оверлей-плашка сверху экрана с крутящейся иконкой/градиентной
+   заливкой и анимацией "галочки" по завершении. См. manualSyncNow(). */
+.sync-overlay{
+  position:fixed;left:50%;top:14px;transform:translate(-50%,-140%);
+  display:flex;align-items:center;gap:10px;padding:11px 18px 11px 14px;border-radius:100px;
+  background:linear-gradient(120deg,var(--surface-3),var(--surface-2),var(--surface-3));
+  background-size:220% 100%;border:1px solid var(--border);box-shadow:0 14px 30px -14px rgba(0,0,0,0.55);
+  z-index:600;transition:transform .35s cubic-bezier(.34,1.56,.64,1),opacity .3s;opacity:0;pointer-events:none;
+  animation:syncShimmer 1.6s linear infinite;
+}
+.sync-overlay.show{transform:translate(-50%,0);opacity:1;}
+.sync-overlay.done{animation:none;background:var(--surface-2);}
+.sync-overlay-icon{width:22px;height:22px;border-radius:100px;display:flex;align-items:center;justify-content:center;color:var(--accent);flex-shrink:0;}
+.sync-overlay-icon svg{width:18px;height:18px;}
+.sync-overlay:not(.done) .sync-overlay-icon svg{animation:iconSpin .8s linear infinite;}
+.sync-overlay.done .sync-overlay-icon{color:var(--accent-2);animation:syncPop .4s cubic-bezier(.34,1.56,.64,1);}
+.sync-overlay-text{font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;}
+@keyframes syncShimmer{0%{background-position:0% 0;}100%{background-position:220% 0;}}
+@keyframes syncPop{0%{transform:scale(.4);opacity:0;}60%{transform:scale(1.15);opacity:1;}100%{transform:scale(1);}}
 .notif-badge{
   position:absolute;top:-3px;right:-3px;min-width:16px;height:16px;padding:0 4px;
   background:var(--danger);color:#fff;border-radius:100px;font-size:10px;font-weight:800;
@@ -1030,6 +1074,94 @@ html.auth-pending #authScreen{display:flex;}
 .auth-legal-body{padding:16px 18px 22px;overflow-y:auto;font-size:12.6px;line-height:1.65;color:var(--text-dim);}
 .auth-legal-body p{margin:0 0 10px;}
 .auth-legal-body b{color:var(--text);}
+/* ---------- Серверы (Настройки → Серверы) ---------- */
+html.auth-pending .overlay{z-index:450;}
+html.auth-pending .del-modal{z-index:460;}
+.srv-hero{position:relative;overflow:hidden;border-radius:20px;padding:18px 18px 16px;margin:6px 0 16px;
+  background:radial-gradient(circle at 100% 0%, var(--accent-dim) 0%, transparent 55%), linear-gradient(160deg, var(--surface-2), var(--surface));
+  border:1px solid var(--border);box-shadow:var(--shadow-soft);}
+.srv-hero.ok{background:radial-gradient(circle at 100% 0%, var(--accent-2-dim) 0%, transparent 58%), linear-gradient(160deg, var(--surface-2), var(--surface));}
+.srv-hero.err{background:radial-gradient(circle at 100% 0%, rgba(232,96,76,0.28) 0%, transparent 58%), linear-gradient(160deg, var(--surface-2), var(--surface));}
+.srv-hero-top{display:flex;align-items:center;gap:13px;}
+.srv-hero-ic{width:52px;height:52px;border-radius:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--surface-3);border:1px solid var(--border);}
+.srv-hero-ic svg{width:28px;height:28px;}
+.srv-hero-kicker{font-size:10.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--text-dim);}
+.srv-hero-name{font-family:var(--font-display);font-weight:700;font-size:21px;line-height:1.15;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.srv-hero-url{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;color:var(--text-dim);margin-top:12px;padding:8px 10px;border-radius:10px;background:var(--surface-3);word-break:break-all;}
+.srv-hero-stats{display:flex;gap:8px;margin-top:12px;}
+.srv-stat{flex:1;min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:9px 10px;}
+.srv-stat-l{font-size:10px;color:var(--text-faint);font-weight:600;text-transform:uppercase;letter-spacing:.6px;}
+.srv-stat-v{font-family:var(--font-display);font-weight:700;font-size:16px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.srv-dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex-shrink:0;background:var(--text-faint);}
+.srv-dot.ok{background:var(--accent-2);box-shadow:0 0 0 0 rgba(62,201,167,.6);animation:srvPulse 1.8s infinite;}
+.srv-dot.err{background:var(--danger);}
+.srv-dot.checking{background:var(--accent);animation:srvBlink .8s infinite alternate;}
+.srv-dot.slow{background:var(--accent);}
+@keyframes srvPulse{0%{box-shadow:0 0 0 0 rgba(62,201,167,.55);}70%{box-shadow:0 0 0 8px rgba(62,201,167,0);}100%{box-shadow:0 0 0 0 rgba(62,201,167,0);}}
+@keyframes srvBlink{from{opacity:.35;}to{opacity:1;}}
+.srv-pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;padding:4px 9px;border-radius:100px;background:var(--surface-3);color:var(--text-dim);white-space:nowrap;}
+.srv-pill.ok{background:rgba(62,201,167,.14);color:var(--accent-2);}
+.srv-pill.err{background:rgba(232,96,76,.13);color:var(--danger);}
+.srv-pill.checking,.srv-pill.slow{background:rgba(242,169,59,.14);color:var(--accent);}
+.srv-hero-actions{display:flex;gap:8px;margin-top:14px;}
+.srv-hero-actions .btn{flex:1;padding:11px;}
+.srv-list{display:flex;flex-direction:column;gap:10px;margin-bottom:6px;}
+.srv-card{position:relative;border-radius:16px;padding:13px 13px 12px;background:var(--surface-2);border:1px solid var(--border);transition:border-color .2s, transform .15s;}
+.srv-card:active{transform:scale(.99);}
+.srv-card.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset, 0 10px 22px -16px rgba(242,169,59,.6);}
+.srv-card.disabled{opacity:.55;}
+.srv-card-top{display:flex;align-items:center;gap:11px;}
+.srv-card-ic{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.srv-card-ic svg{width:22px;height:22px;}
+.srv-ic-main{background:rgba(242,169,59,.15) !important;color:var(--accent);}
+.srv-ic-reserve{background:rgba(90,150,255,.15) !important;color:#6ea0ff;}
+.srv-ic-home{background:rgba(233,84,32,.15) !important;color:#E95420;}
+.srv-ic-custom{background:rgba(62,201,167,.14) !important;color:var(--accent-2);}
+.srv-seg button.on .srv-seg-ic{transform:scale(1.08);}
+.srv-seg-ic{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;transition:transform .15s;}
+.srv-card-title{font-weight:700;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.srv-card-sub{font-size:11.5px;color:var(--text-dim);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:ui-monospace,Menlo,Consolas,monospace;}
+.srv-card-sub.srv-empty{font-family:var(--font-body);color:var(--text-faint);font-style:italic;}
+.srv-badge{font-size:9.5px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;padding:3px 7px;border-radius:6px;background:var(--surface-3);color:var(--text-dim);margin-left:6px;vertical-align:2px;}
+.srv-badge.on{background:var(--accent);color:#241a06;}
+.srv-card-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:11px;flex-wrap:wrap;}
+.srv-card-btns{margin-left:auto;}
+.srv-card-btns{display:flex;gap:6px;flex-shrink:0;}
+.srv-mini{height:32px;min-width:32px;padding:0 11px;border-radius:9px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:5px;cursor:pointer;font-family:inherit;}
+.srv-mini svg{width:15px;height:15px;}
+.srv-mini.primary{background:linear-gradient(155deg,#ffc266,var(--accent));color:#241a06;border-color:transparent;}
+.srv-mini:disabled{opacity:.4;cursor:default;}
+.srv-add{width:100%;border:1.5px dashed var(--border);background:transparent;color:var(--text-dim);border-radius:16px;padding:14px;font-weight:700;font-size:13.5px;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px;}
+.srv-add:active{background:var(--surface-2);}
+.srv-tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.srv-tile{border-radius:16px;padding:14px 13px;background:var(--surface-2);border:1px solid var(--border);cursor:pointer;text-align:left;color:var(--text);font-family:inherit;}
+.srv-tile:active{background:var(--surface-3);}
+.srv-tile-ic{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:var(--surface-3);margin-bottom:10px;font-size:17px;}
+.srv-tile-t{font-weight:700;font-size:13.5px;}
+.srv-tile-d{font-size:11.2px;color:var(--text-dim);margin-top:3px;line-height:1.4;}
+.srv-tile.wide{grid-column:1 / -1;display:flex;align-items:center;gap:12px;}
+.srv-tile.wide .srv-tile-ic{margin:0;flex-shrink:0;}
+.srv-note{font-size:11.8px;color:var(--text-dim);line-height:1.55;padding:11px 12px;border-radius:12px;background:var(--surface-2);border:1px solid var(--border);margin:10px 0;}
+.srv-note.warn{background:rgba(242,169,59,.09);border-color:rgba(242,169,59,.3);color:var(--text);}
+.srv-note.bad{background:rgba(232,96,76,.08);border-color:rgba(232,96,76,.3);color:var(--text);}
+.srv-seg{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:14px;}
+.srv-seg button{border:1px solid var(--border);background:var(--surface-2);color:var(--text-dim);border-radius:12px;padding:10px 4px 8px;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:5px;}
+.srv-seg button svg{width:20px;height:20px;}
+.srv-seg button.on{border-color:var(--accent);color:var(--text);background:rgba(242,169,59,.1);}
+.srv-preview{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;color:var(--accent-2);margin:-6px 0 12px;word-break:break-all;}
+.srv-test{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:12px;background:var(--surface-2);border:1px solid var(--border);font-size:12.5px;margin:10px 0 4px;}
+.srv-steps{counter-reset:srvstep;display:flex;flex-direction:column;gap:12px;}
+.srv-step{position:relative;padding:13px 13px 13px 50px;border-radius:14px;background:var(--surface-2);border:1px solid var(--border);}
+.srv-step::before{counter-increment:srvstep;content:counter(srvstep);position:absolute;left:13px;top:13px;width:26px;height:26px;border-radius:8px;background:#E95420;color:#fff;font-family:var(--font-display);font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center;}
+.srv-step-t{font-weight:700;font-size:13.5px;}
+.srv-step-d{font-size:11.8px;color:var(--text-dim);line-height:1.5;margin-top:3px;}
+.srv-code{position:relative;margin-top:9px;background:#0d0f14;color:#d6f5e9;border-radius:10px;padding:10px 42px 10px 11px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;line-height:1.55;white-space:pre-wrap;word-break:break-all;border:1px solid #262b36;}
+.srv-code button{position:absolute;top:6px;right:6px;width:30px;height:30px;border-radius:8px;border:none;background:#232835;color:#aeb4c0;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.srv-code button svg{width:15px;height:15px;}
+.srv-textbox{width:100%;min-height:190px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;line-height:1.5;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--surface-2);color:var(--text);resize:vertical;box-sizing:border-box;}
+.srv-auth-link{display:inline-flex;align-items:center;gap:6px;margin-top:10px;font-size:11.5px;color:var(--text-dim);cursor:pointer;padding:6px 10px;border-radius:100px;border:1px solid var(--border);background:var(--surface-2);}
+.srv-sec{justify-content:flex-start !important;}
+.srv-auth-link b{color:var(--text);font-weight:700;}
 </style>
 </head>
 <body>
@@ -1102,6 +1234,7 @@ html.auth-pending #authScreen{display:flex;}
 
     <div class="auth-switch-note" id="authSwitchNote">Нет аккаунта? <a onclick="authSwitchTab('register')">Зарегистрироваться</a></div>
     <div class="auth-switch-note" id="authGuestNote" style="margin-top:2px;"><a onclick="enterGuestMode()">Войти в панель</a></div>
+    <div style="text-align:center;"><span class="srv-auth-link" id="authServerChip" onclick="openServerSettings()"><span class="srv-dot" id="authServerDot"></span>Сервер: <b id="authServerName">Основной сервер</b></span></div>
   </div>
 </div>
 
@@ -1612,15 +1745,26 @@ function authSetUser(u){ try{ if(u) localStorage.setItem(AUTH_USER_KEY, JSON.str
 async function apiFetch(path, options){
   options = options || {};
   const base = apiBase();
-  if(!base || base.indexOf('ВАШ-СЕРВЕР')>=0){ throw new Error('Адрес сервера не настроен. Укажите window.XCAR_API_BASE в начале index.html после деплоя сервера.'); }
+  if(!base || base.indexOf('ВАШ-СЕРВЕР')>=0){ throw new Error('Адрес сервера не настроен. Откройте Настройки → Серверы и укажите адрес.'); }
+  const __noFailover = !!options.__noFailover;
   const headers = Object.assign({'Content-Type':'application/json'}, options.headers||{});
   const token = authGetToken();
   if(token) headers['Authorization'] = 'Bearer '+token;
   let res;
   try{
-    res = await fetch(base+path, Object.assign({}, options, {headers}));
+    const fetchOpts = Object.assign({}, options, {headers});
+    delete fetchOpts.__noFailover;
+    res = await fetch(base+path, fetchOpts);
   }catch(e){
-    throw new Error('Нет соединения с сервером. Проверьте интернет и адрес сервера.');
+    // Сервер не отвечает — если включено автопереключение и есть резервный
+    // сервер, переключаемся на него и повторяем тот же запрос один раз.
+    if(!__noFailover && await srvTryFailover()){
+      return apiFetch(path, Object.assign({}, options, {__noFailover:true}));
+    }
+    throw new Error('Нет соединения с сервером. Проверьте интернет или смените сервер в Настройки → Серверы.');
+  }
+  if(!__noFailover && (res.status===502 || res.status===503 || res.status===504) && await srvTryFailover()){
+    return apiFetch(path, Object.assign({}, options, {__noFailover:true}));
   }
   let body = null;
   try{ body = await res.json(); }catch(e){}
@@ -1628,8 +1772,36 @@ async function apiFetch(path, options){
     authSetToken(null); authSetUser(null);
     throw new Error((body&&body.error) || 'Сессия истекла, войдите снова');
   }
+  // Раздел 20: администратор заблокировал этот аккаунт — сервер отвечает
+  // 403 с флагом blocked на ЛЮБОМ авторизованном запросе (см. authMiddleware
+  // в server/lib/auth.js), не только при попытке входа. Реагируем сразу —
+  // выходим из аккаунта локально и показываем отдельный полноэкранный экран
+  // (не путать с обычным "Подписка неактивна"/"Вы вышли из аккаунта").
+  if(res.status===403 && body && body.blocked){
+    authSetToken(null); authSetUser(null);
+    showBlockedGate(body.error);
+    throw new Error(body.error || 'Аккаунт заблокирован');
+  }
   if(!res.ok) throw new Error((body&&body.error) || ('Ошибка сервера ('+res.status+')'));
   return body;
+}
+let __blockedGateShown = false;
+function showBlockedGate(message){
+  // Не открываем повторно, если уже показан (несколько фоновых запросов
+  // могут словить 403 почти одновременно).
+  if(__blockedGateShown) return;
+  __blockedGateShown = true;
+  openSheet(`
+    <div class="sheet-handle"></div>
+    <div class="sheet-head"><div class="sheet-title">🚫 Доступ заблокирован</div></div>
+    <div class="sheet-body">
+      <div style="font-size:13px;color:var(--text-dim);line-height:1.7;margin-bottom:18px;">
+        ${esc(message || 'Ваш аккаунт заблокирован администратором сервиса.')}<br><br>
+        Если считаете, что это ошибка — свяжитесь с администратором сервиса.
+      </div>
+      <button class="btn primary" style="width:100%;" onclick="__blockedGateShown=false;closeSheet();openLoginScreen();">Попробовать войти снова</button>
+    </div>
+  `);
 }
 
 function queueServerSync(key){
@@ -1696,24 +1868,64 @@ async function refreshSubscription(){
 // Ручное обновление с сервера — кнопка в шапке (режим для Windows) и
 // свайп-вниз на вкладке "Машины" (телефон) вызывают именно эту функцию.
 let __manualSyncing = false;
+// Раздел 20: минимум 3 секунды анимации на обновление — даже если сама
+// синхронизация с сервером ответила быстрее, показ длится не короче этого
+// времени, чтобы процесс воспринимался как весомое действие, а не моргание.
+const SYNC_MIN_DURATION_MS = 3000;
+function syncOverlayEl(){
+  let el = document.getElementById('syncOverlay');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'syncOverlay';
+    el.className = 'sync-overlay';
+    el.innerHTML = `<div class="sync-overlay-icon"></div><div class="sync-overlay-text"></div>`;
+    document.body.appendChild(el);
+  }
+  return el;
+}
+const SYNC_ICON_SPIN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.2-6.87"/><path d="M21 3v5h-5"/></svg>`;
+const SYNC_ICON_OK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`;
+const SYNC_ICON_ERR = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>`;
+function showSyncOverlay(){
+  const el = syncOverlayEl();
+  el.classList.remove('done');
+  el.querySelector('.sync-overlay-icon').innerHTML = SYNC_ICON_SPIN;
+  el.querySelector('.sync-overlay-text').textContent = 'Обновление данных…';
+  clearTimeout(el.__hideTimer);
+  requestAnimationFrame(()=> el.classList.add('show'));
+}
+function finishSyncOverlay(ok, message){
+  const el = document.getElementById('syncOverlay');
+  if(!el) return;
+  el.classList.add('done');
+  el.querySelector('.sync-overlay-icon').innerHTML = ok ? SYNC_ICON_OK : SYNC_ICON_ERR;
+  el.querySelector('.sync-overlay-text').textContent = message;
+  el.__hideTimer = setTimeout(()=>{ el.classList.remove('show'); }, 1100);
+}
 async function manualSyncNow(){
   if(isLoggedOut()){ showToast('Войдите в аккаунт, чтобы синхронизировать'); return; }
   if(__manualSyncing) return;
   __manualSyncing = true;
   const btn = document.getElementById('syncNowBtn');
   if(btn) btn.classList.add('spinning');
+  const startedAt = Date.now();
+  showSyncOverlay();
+  let ok = true, resultMsg = 'Данные обновлены с сервера';
   try{
     await pullServerData();
     await loadAll();
     await refreshSubscription();
     render();
-    showToast('Данные обновлены с сервера');
   }catch(e){
-    showToast(e.message || 'Не удалось обновить данные');
-  }finally{
-    __manualSyncing = false;
-    if(btn) btn.classList.remove('spinning');
+    ok = false;
+    resultMsg = e.message || 'Не удалось обновить данные';
   }
+  const remain = SYNC_MIN_DURATION_MS - (Date.now() - startedAt);
+  if(remain > 0) await new Promise(r=>setTimeout(r, remain));
+  finishSyncOverlay(ok, resultMsg);
+  showToast(resultMsg);
+  __manualSyncing = false;
+  if(btn) btn.classList.remove('spinning');
 }
 function subExpired(){ return !!(SUBSCRIPTION && SUBSCRIPTION.status === 'expired'); }
 // Вышли из аккаунта (но локальные данные на устройстве остались) — приложение
@@ -1723,13 +1935,13 @@ function openSubscriptionGate(what){
   const loggedOut = isLoggedOut();
   openSheet(`
     <div class="sheet-handle"></div>
-    <div class="sheet-head"><div class="sheet-title">${loggedOut ? 'Вы вышли из аккаунта' : 'Подписка неактивна'}</div>
+    <div class="sheet-head"><div class="sheet-title">${loggedOut ? 'Тариф «Бесплатный» без регистрации' : 'Подписка неактивна'}</div>
       <button class="icon-btn" onclick="closeSheet()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
     </div>
     <div class="sheet-body">
       <div style="font-size:14px;line-height:1.6;color:var(--text-dim);margin-bottom:18px;">
         ${loggedOut
-          ? `Чтобы выполнить действие «${esc(what)}», войдите в свой аккаунт — сейчас вы вышли, и часть функций ограничена.`
+          ? `Без регистрации доступен тариф «Бесплатный» — до ${GUEST_CAR_LIMIT} машины. Чтобы выполнить действие «${esc(what)}», зарегистрируйтесь или войдите в аккаунт — это снимет ограничение по количеству машин.`
           : `Пробный период или оплаченный тариф закончились, поэтому действие «${esc(what)}» сейчас недоступно. Выберите тариф или продлите текущий — займёт пару минут.`}
       </div>
       <button class="btn primary" style="width:100%;" onclick="${loggedOut ? 'openLoginScreen()' : 'openTariffs()'}">${loggedOut ? 'Войти в аккаунт' : 'Выбрать тариф'}</button>
@@ -2167,7 +2379,7 @@ function proceedQuickPayment(){
   openClientPaymentForm(id);
 }
 function openQuickExpensePicker(){
-  if(subExpired() || isLoggedOut()){ openSubscriptionGate('Добавить расход'); return; }
+  if(subExpired()){ openSubscriptionGate('Добавить расход'); return; }
   openSheet(`
     <div class="sheet-handle"></div>
     <div class="sheet-head"><div class="sheet-title">Добавить расход</div>
@@ -2938,13 +3150,21 @@ function carCard(c, viewMode){
     </div>
   </div>`;
 }
+// Раунд 21: гостевой режим (без регистрации, полностью локально) работает
+// как отдельный тариф «Бесплатный» — без блокировок по остальным разделам,
+// но с жёстким лимитом в 1 машину (GUEST_CAR_LIMIT), проверяемым локально,
+// так как у гостя нет серверного объекта SUBSCRIPTION с carLimit.
+const GUEST_CAR_LIMIT = 1;
 function openCarForm(existing){
-  if(!existing && isLoggedOut()){ openSubscriptionGate('Добавить машину'); return; }
+  if(!existing && isLoggedOut() && DB.cars.length >= GUEST_CAR_LIMIT){
+    openSubscriptionGate('Добавить машину (лимит тарифа «Бесплатный» без регистрации — '+GUEST_CAR_LIMIT+' машина; войдите в аккаунт, чтобы снять ограничение)');
+    return;
+  }
   if(!existing && SUBSCRIPTION && DB.cars.length >= (SUBSCRIPTION.carLimit||0)){
     openSubscriptionGate('Добавить машину (лимит по тарифу «'+(SUBSCRIPTION.planName||'')+'» — '+SUBSCRIPTION.carLimit+')');
     return;
   }
-  const c = existing || { id:'', make:'', model:'', year:new Date().getFullYear(), plate:'', rate:2000, rate6h:0, status:'free', vin:'', notes:'' };
+  const c = existing || { id:'', make:'', model:'', year:new Date().getFullYear(), plate:'', rate:2000, rate6h:0, status:'free', vin:'', notes:'', overdueHourRate:0 };
   openSheet(`
     <div class="sheet-handle"></div>
     <div class="sheet-head"><div class="sheet-title">${existing?'Редактировать машину':'Новая машина'}</div>
@@ -2963,14 +3183,26 @@ function openCarForm(existing){
         <div class="field"><label>Цена в сутки (${DB.settings.currency})</label><input id="f_rate" type="number" value="${c.rate}"></div>
         <div class="field"><label>Цена за 6 часов (${DB.settings.currency})</label><input id="f_rate6h" type="number" value="${c.rate6h||0}" placeholder="0 = не используется"></div>
       </div>
-      <div class="field"><label>Статус</label>
-        <select id="f_status">
-          <option value="free" ${c.status==='free'?'selected':''}>Свободна</option>
-          <option value="rented" ${c.status==='rented'?'selected':''}>В аренде</option>
-          <option value="booked" ${c.status==='booked'?'selected':''}>Забронирована</option>
-          <option value="service" ${c.status==='service'?'selected':''}>На сервисе (ремонт)</option>
-        </select>
+      <div class="field-row">
+        <div class="field"><label>Статус</label>
+          <select id="f_status">
+            <option value="free" ${c.status==='free'?'selected':''}>Свободна</option>
+            <option value="rented" ${c.status==='rented'?'selected':''}>В аренде</option>
+            <option value="booked" ${c.status==='booked'?'selected':''}>Забронирована</option>
+            <option value="service" ${c.status==='service'?'selected':''}>На сервисе (ремонт)</option>
+          </select>
+        </div>
+        <div class="field"><label>Сумма за опоздание за каждый час (${DB.settings.currency})</label><input id="f_overdue_hour" type="number" value="${c.overdueHourRate||0}" placeholder="0"></div>
       </div>
+      <!-- Раунд 23: поле только хранит цену на карточке машины (видна в
+           «Новая/Редактировать машину» и в детали машины) — по явному выбору
+           пользователя (AskUserQuestion) НЕ запускает никакого автоматического
+           начисления доплаты за опоздание; вся такая автоматика была целиком
+           удалена в раунде 16 по прежней просьбе пользователя и намеренно не
+           восстанавливается. Сумму для доплаты при просрочке администратор
+           по-прежнему вписывает вручную в «Продлить»/«Завершить аренду», как
+           и сейчас — это поле просто держит цену под рукой для справки. -->
+      <div style="font-size:11px;color:var(--text-faint);margin-top:-8px;margin-bottom:2px;">Справочно — сюда, сколько взять с клиента за час опоздания; сама сумма доплаты при просрочке по-прежнему вписывается вручную в «Продлить»/«Завершить аренду».</div>
       <div class="field">
         <label>Фото автомобиля</label>
         <div style="display:flex;align-items:center;gap:12px;">
@@ -3171,6 +3403,7 @@ async function saveCar(id){
     rate: parseFloat(document.getElementById('f_rate').value)||0,
     rate6h: parseFloat(document.getElementById('f_rate6h').value)||0,
     status: document.getElementById('f_status').value,
+    overdueHourRate: parseFloat(document.getElementById('f_overdue_hour').value)||0,
     notes: document.getElementById('f_notes').value.trim(),
     photo,
   };
@@ -3215,6 +3448,7 @@ function openCarDetail(id){
         <div class="detail-row"><span class="k">Год выпуска</span><span class="v">${c.year||'—'}</span></div>
         <div class="detail-row"><span class="k">Цена в сутки</span><span class="v">${money(c.rate)}</span></div>
         ${c.rate6h ? `<div class="detail-row"><span class="k">Цена за 6 часов</span><span class="v">${money(c.rate6h)}</span></div>` : ''}
+        ${c.overdueHourRate ? `<div class="detail-row"><span class="k">За опоздание, за час</span><span class="v">${money(c.overdueHourRate)}</span></div>` : ''}
         ${c.vin ? `<div class="detail-row"><span class="k">VIN</span><span class="v">${esc(c.vin)}</span></div>`:''}
         ${c.notes ? `<div class="detail-row"><span class="k">Заметки</span><span class="v">${esc(c.notes)}</span></div>`:''}
         ${ac ? `<div class="detail-row"><span class="k">Возврат</span><span class="v"><span class="timer-pill ${tl.overdue?'overdue':''}">${timerSvg()}${tl.text}</span></span></div>` : ''}
@@ -3967,7 +4201,7 @@ function clientUnpaidByCategory(clientId){
   return { rental: sum('rental'), fine: sum('fine'), violation: sum('violation'), oldDebt: sum('oldDebt') };
 }
 function openClientPaymentForm(clientId){
-  if(subExpired() || isLoggedOut()){ openSubscriptionGate('Добавить платёж (доход)'); return; }
+  if(subExpired()){ openSubscriptionGate('Добавить платёж (доход)'); return; }
   const c = DB.clients.find(x=>x.id===clientId); if(!c) return;
   const { debt } = clientDebt(clientId);
   // Раунд 18: «За что платёж» по умолчанию — «Общий платёж» (auto), а не
@@ -3975,6 +4209,20 @@ function openClientPaymentForm(clientId){
   // обычный выпадающий список (select), в том же стиле, что и поля «Клиент»/
   // «Машина» в остальном приложении, вместо ряда кнопок-переключателей.
   const defaultPurpose = 'auto';
+  // Раунд 22: если у клиента есть долг — в конце каждого пункта списка
+  // дописывается сумма долга по этой категории («Общий платёж» — вся сумма
+  // долга, остальные — долг именно по этой категории, из того же
+  // clientUnpaidByCategory(), которым уже пользуется автоматическое
+  // распределение платежа). Настоящий <select> не поддерживает раздельную
+  // вёрстку/выравнивание внутри <option> — сумма дописывается в конец текста
+  // пункта через неразрывные пробелы, это максимум, что позволяет нативный
+  // выпадающий список браузера.
+  const purposeAmounts = debt>0 ? { auto: debt, ...clientUnpaidByCategory(clientId) } : null;
+  function purposeOptionLabel(k){
+    const amt = purposeAmounts ? (purposeAmounts[k]||0) : 0;
+    const suffix = amt>0 ? `    — ${money(amt)}` : '';
+    return `${PURPOSE_LABELS[k]}${suffix}`;
+  }
   openSheet(`
     <div class="sheet-handle"></div>
     <div class="sheet-head"><div class="sheet-title">Платёж · ${esc(c.name)}</div>
@@ -3985,7 +4233,7 @@ function openClientPaymentForm(clientId){
       <div class="field">
         <label>За что платёж</label>
         <select id="f_pay_purpose" onchange="setPayPurpose(this.value,'${clientId}')">
-          ${PAY_PURPOSE_ORDER.map(k=>`<option value="${k}" ${defaultPurpose===k?'selected':''}>${PURPOSE_LABELS[k]}</option>`).join('')}
+          ${PAY_PURPOSE_ORDER.map(k=>`<option value="${k}" ${defaultPurpose===k?'selected':''}>${esc(purposeOptionLabel(k))}</option>`).join('')}
         </select>
         <div id="payAutoHint" style="font-size:11.5px;color:var(--text-dim);margin-top:6px;${defaultPurpose==='auto'?'':'display:none;'}">🧮 Спишет долг по порядку: <b>${esc(paymentOrderSummary())}</b> — порядок можно изменить в настройках → Аренда и долги.</div>
       </div>
@@ -4534,7 +4782,7 @@ function contractCard(ct){
   </div>`;
 }
 function openContractForm(existing, presetCarId, presetClientId){
-  if(!existing && (subExpired() || isLoggedOut())){ openSubscriptionGate('Оформить новый договор'); return; }
+  if(!existing && subExpired()){ openSubscriptionGate('Оформить новый договор'); return; }
   if(DB.cars.length===0){ showToast('Сначала добавьте машину'); return; }
   const availableCars = DB.cars.filter(c => c.status==='free' || (existing && c.id===existing.carId));
   if(!existing && availableCars.length===0){ showToast('Нет свободных машин — все сейчас в аренде или на сервисе'); return; }
@@ -5697,6 +5945,7 @@ function subStatusBadge(sub){
   return `<span class="badge unpaid">Истёк</span>`;
 }
 const TARIFF_PLANS_FALLBACK = [
+  { id:'free', name:'Бесплатный', price:0, carLimit:1 },
   { id:'start', name:'Старт', price:1500, carLimit:3 },
   { id:'standard', name:'Стандарт', price:2500, carLimit:8 },
   { id:'business', name:'Бизнес', price:4500, carLimit:15 }
@@ -5739,21 +5988,28 @@ function tariffsSheetHtml(){
   ` : `<div style="font-size:12px;color:var(--text-dim);padding:6px 4px 0;">Загрузка статуса подписки…</div>`;
 
   // Своя цветовая тема и иконка на каждый тариф — чтобы карточки визуально
-  // отличались друг от друга с первого взгляда, а не были тремя одинаковыми
-  // строками с разными цифрами. Средний тариф (по индексу) помечается как
-  // «Популярный», если тарифов ровно 3 (типичный случай) — самый частый
-  // паттерн для прайсинга из трёх карточек.
+  // отличались друг от друга с первого взгляда, а не были одинаковыми
+  // строками с разными цифрами. Средний ПЛАТНЫЙ тариф помечается как
+  // «Популярный», если платных тарифов ровно 3 (типичный случай) — самый
+  // частый паттерн для прайсинга из трёх карточек; бесплатный тариф в этот
+  // расчёт не входит и никогда не помечается популярным.
   const PLAN_THEMES = [
+    { grad:'linear-gradient(155deg,#d7dde6,#aab3c6)', glow:'rgba(148,163,184,0.16)', ring:'rgba(148,163,184,0.35)', icon:`<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12v9H4v-9"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7Z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7Z"/></svg>` },
     { grad:'linear-gradient(155deg,#8fd8c4,var(--accent-2))', glow:'rgba(62,201,167,0.16)', ring:'rgba(62,201,167,0.35)', icon:`<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h8l-1 8 10-12h-8l1-8Z"/></svg>` },
     { grad:'linear-gradient(155deg,#ffd68a,var(--accent))', glow:'rgba(242,169,59,0.18)', ring:'rgba(242,169,59,0.4)', icon:`<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 15 9l7 1-5.2 5 1.4 7L12 18.5 5.8 22l1.4-7L2 10l7-1 3-7Z"/></svg>` },
     { grad:'linear-gradient(155deg,#b2b8ff,#8e97ff)', glow:'rgba(142,151,255,0.18)', ring:'rgba(142,151,255,0.4)', icon:`<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21V9l9-6 9 6v12"/><path d="M9 21V13h6v8"/></svg>` }
   ];
   const maxDiscountPct = Math.round((TARIFF_DISCOUNTS[12]||0)*100);
+  const paidPlans = plans.filter(p=>(p.price||0)>0);
+  const popularPlanId = paidPlans.length===3 ? paidPlans[1].id : null;
   const plansHtml = plans.map((p,i)=>{
+    const isFree = !(p.price>0);
     const isCurrent = sub && sub.planId===p.id && sub.status!=='expired';
     const theme = PLAN_THEMES[i % PLAN_THEMES.length];
-    const isPopular = plans.length===3 && i===1 && !isCurrent;
+    const isPopular = !isFree && p.id===popularPlanId && !isCurrent;
     const monthlyAt12 = Math.round(tariffAmountForMonths(p.price||0,12)/12);
+    const buttonLabel = isCurrent ? actionLabel : (isFree ? 'Активировать бесплатно' : 'Выбрать тариф');
+    const buttonAction = isFree ? `activateFreePlan('${p.id}')` : `openTariffDuration('${p.id}')`;
     return `
       <div class="card" style="cursor:default;flex-direction:column;align-items:stretch;padding:18px 18px 16px;${isCurrent?'border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset, var(--shadow-card);':isPopular?`border-color:${theme.ring};box-shadow:0 0 0 1px ${theme.ring} inset, 0 10px 24px -14px ${theme.glow};`:''}">
         ${isPopular ? `<div style="position:absolute;top:14px;right:14px;background:${theme.grad};color:#241a06;font-size:10px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;padding:4px 10px;border-radius:100px;z-index:2;box-shadow:0 4px 10px -4px ${theme.glow};">★ Популярный</div>` : ''}
@@ -5768,8 +6024,8 @@ function tariffsSheetHtml(){
           <div class="card-amount" style="font-size:24px;">${(p.price||0).toLocaleString('ru-RU')} ₽</div>
           <div style="font-size:12.5px;color:var(--text-dim);">/ мес</div>
         </div>
-        <div style="font-size:11.5px;color:var(--accent-2);margin-top:2px;position:relative;z-index:1;">от ${monthlyAt12.toLocaleString('ru-RU')} ₽/мес при оплате за год (−${maxDiscountPct}%)</div>
-        <button class="btn ${isCurrent?'ghost':'primary'}" style="width:100%;margin-top:14px;position:relative;z-index:1;" onclick="openTariffDuration('${p.id}')">${isCurrent?actionLabel:'Выбрать тариф'}</button>
+        ${isFree ? '' : `<div style="font-size:11.5px;color:var(--accent-2);margin-top:2px;position:relative;z-index:1;">от ${monthlyAt12.toLocaleString('ru-RU')} ₽/мес при оплате за год (−${maxDiscountPct}%)</div>`}
+        <button class="btn ${isCurrent?'ghost':'primary'}" style="width:100%;margin-top:14px;position:relative;z-index:1;" onclick="${buttonAction}">${buttonLabel}</button>
       </div>
     `;
   }).join('');
@@ -5797,6 +6053,21 @@ function openTariffs(){
     if(document.getElementById('overlay').classList.contains('show')) openSheet(tariffsSheetHtml());
   });
 }
+// Активация бесплатного тарифа — в отличие от платных, без выбора срока и
+// без заявки на подтверждение администратором: сервер сам продлевает
+// подписку сразу (см. POST /billing/activate-free), поэтому здесь просто
+// вызываем эндпоинт и обновляем экран тарифов по готовому ответу.
+async function activateFreePlan(planId){
+  if(!authGetToken()){ showToast('Нужно войти в аккаунт'); return; }
+  try{
+    await apiFetch('/billing/activate-free', { method:'POST', body: JSON.stringify({ planId }) });
+    await refreshSubscription();
+    showToast('Бесплатный тариф подключён');
+    if(document.getElementById('overlay').classList.contains('show')) openSheet(tariffsSheetHtml());
+  }catch(e){
+    showToast(e.message || 'Не удалось подключить тариф');
+  }
+}
 // ---- Выбор срока подписки (1/3/6/12 мес) перед отправкой заявки ----
 // Раньше заявка создавалась сразу на 1 месяц по клику на тариф. Теперь между
 // выбором тарифа и заявкой — отдельный экран: клиент выбирает срок (сумма
@@ -5815,6 +6086,10 @@ function tariffDurationSheetHtml(plan){
   const months = __tariffDurationState.months;
   const phoneInput = document.getElementById('f_tariff_phone');
   const phoneVal = phoneInput ? phoneInput.value : ((authGetUser()||{}).phone || '');
+  const nameInput = document.getElementById('f_tariff_name');
+  const nameVal = nameInput ? nameInput.value : ((authGetUser()||{}).name || '');
+  const bankInput = document.getElementById('f_tariff_bank');
+  const bankVal = bankInput ? bankInput.value : '';
   const amount = tariffAmountForMonths(plan.price||0, months);
   const baseAmount = (plan.price||0) * months;
   const selectedSavings = baseAmount - amount;
@@ -5857,6 +6132,8 @@ function tariffDurationSheetHtml(plan){
       ` : ''}
       <div class="field"><label>Ваш номер телефона</label><input id="f_tariff_phone" value="${escapeAttr(phoneVal)}" placeholder="+7 900 000-00-00"></div>
       <div style="font-size:11.5px;color:var(--text-faint);margin-top:-8px;margin-bottom:4px;">Чтобы администратор знал, кому подключить подписку после получения оплаты — можно вписать не только свой номер, а тот, с которого будете переводить.</div>
+      <div class="field"><label>Ф.И.О. клиента</label><input id="f_tariff_name" value="${escapeAttr(nameVal)}" placeholder="Иванов Иван Иванович"></div>
+      <div class="field"><label>Банк оплаты</label><input id="f_tariff_bank" value="${escapeAttr(bankVal)}" placeholder="Например: Сбербанк, Каспи, Kaspi Pay"></div>
       <button class="btn primary" style="width:100%;margin-top:10px;" onclick="submitTariffRequest()">Отправить заявку на ${amount.toLocaleString('ru-RU')} ₽</button>
     </div>
   `;
@@ -5870,12 +6147,14 @@ function selectTariffDuration(months){
 async function submitTariffRequest(){
   const phone = (document.getElementById('f_tariff_phone').value||'').trim();
   if(!phone){ showToast('Укажите номер телефона'); return; }
-  await requestTariff(__tariffDurationState.planId, __tariffDurationState.months, phone);
+  const clientName = (document.getElementById('f_tariff_name').value||'').trim();
+  const paymentBank = (document.getElementById('f_tariff_bank').value||'').trim();
+  await requestTariff(__tariffDurationState.planId, __tariffDurationState.months, phone, clientName, paymentBank);
 }
-async function requestTariff(planId, months, contactPhone){
+async function requestTariff(planId, months, contactPhone, clientName, paymentBank){
   if(!authGetToken()){ showToast('Нужно войти в аккаунт'); return; }
   try{
-    const r = await apiFetch('/billing/request', { method:'POST', body: JSON.stringify({ planId, months: months||1, contactPhone: contactPhone||'' }) });
+    const r = await apiFetch('/billing/request', { method:'POST', body: JSON.stringify({ planId, months: months||1, contactPhone: contactPhone||'', clientName: clientName||'', paymentBank: paymentBank||'' }) });
     openPaymentRequisites(r.plan, r.payment, r.months, r.amount);
   }catch(e){
     showToast(e.message || 'Не удалось отправить заявку');
@@ -5927,6 +6206,631 @@ function copyRequisite(el){
     navigator.clipboard.writeText(val).then(()=>showToast('Скопировано')).catch(()=>{});
   }
 }
+/* =================== СЕРВЕРЫ (Настройки → Серверы) ===================
+   Список серверов хранится на ЭТОМ устройстве (localStorage, xcar_servers_v1),
+   на сервер не отправляется — ведь чтобы узнать, к какому серверу
+   подключаться, приложение должно знать это заранее. Перенести список на
+   другое устройство — через «Резервная копия настроек серверов» (текст +
+   буфер обмена).
+   Автопереключение: если активный сервер не отвечает (нет соединения или
+   502/503/504), приложение проверяет остальные серверы по порядку списка и
+   переключается на первый живой, затем повторяет запрос. */
+const SRV_KEY = 'xcar_servers_v1';
+const SRV_ICONS = {
+  main: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H7a5 5 0 1 1 .9-9.92A6 6 0 0 1 19 11.1 4 4 0 0 1 17.5 19Z"/></svg>',
+  reserve: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg>',
+  home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 9.8V20h13V9.8"/><rect x="9" y="12.5" width="6" height="4.5" rx="1"/><path d="M11 14.7h.01"/></svg>',
+  custom: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01M11 7.5h6M11 16.5h6"/></svg>'
+};
+const SRV_ROLES = {
+  main:    { label:'Основной',  full:'Основной сервер',  hint:'Облачный сервер (Render и т.п.)' },
+  reserve: { label:'Резервный', full:'Резервный сервер', hint:'Подхватит работу, если основной упал' },
+  home:    { label:'Ubuntu',    full:'Домашний Ubuntu',  hint:'Ваш компьютер дома на Ubuntu' },
+  custom:  { label:'Другой',    full:'Другой сервер',    hint:'Любой свой сервер XCAR' }
+};
+const SVG_COPY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>';
+const SVG_EDIT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+const SVG_UP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>';
+const SVG_PULSE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>';
+
+function srvDefaultConfig(){
+  // Открыто по Wi-Fi-адресу домашнего сервера — он и будет активным
+  const lan = window.XCAR_LAN_PAGE ? location.origin + '/api' : '';
+  return {
+    activeId: lan ? 'home' : 'main',
+    autoFailover: true,
+    servers: [
+      { id:'home',    name:'Домашний Ubuntu',  role:'home',    url: lan, enabled:true },
+      { id:'main',    name:'Основной сервер',  role:'main',    url: window.XCAR_DEFAULT_API_BASE || '', enabled:true },
+      { id:'reserve', name:'Резервный сервер', role:'reserve', url:'', enabled:true }
+    ].sort((a,b)=> lan ? 0 : (a.id==='home') - (b.id==='home'))
+  };
+}
+function srvIsPrivateUrl(url){ try{ const h = new URL(url).hostname; return /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h); }catch(e){ return false; } }
+// Адрес, по которому открыть само приложение с домашнего сервера (без /api)
+function srvAppUrl(url){ return (url||'').replace(/\/api\/?$/i,'') + '/'; }
+function srvLoad(){
+  try{
+    const c = JSON.parse(localStorage.getItem(SRV_KEY) || 'null');
+    if(c && Array.isArray(c.servers) && c.servers.length){
+      if(!c.servers.some(s=>s.id===c.activeId)) c.activeId = c.servers[0].id;
+      return c;
+    }
+  }catch(e){}
+  return srvDefaultConfig();
+}
+function srvSave(c){ try{ localStorage.setItem(SRV_KEY, JSON.stringify(c)); }catch(e){} }
+function srvActive(c){ c = c || srvLoad(); return c.servers.find(s=>s.id===c.activeId) || c.servers[0]; }
+function srvApply(c){ const a = srvActive(c); window.XCAR_API_BASE = (a && a.url) || window.XCAR_DEFAULT_API_BASE || ''; }
+function srvNewId(){ return 's'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+function srvRole(r){ return SRV_ROLES[r] ? r : 'custom'; }
+// Превращает то, что ввёл пользователь, в полный адрес API:
+//   xcar.mydomain.ru          → https://xcar.mydomain.ru/api
+//   192.168.1.50:8080         → http://192.168.1.50:8080/api
+//   https://xxx.onrender.com/ → https://xxx.onrender.com/api
+function srvNormalizeUrl(raw){
+  let u = (raw||'').trim().replace(/\s+/g,'');
+  if(!u) return '';
+  if(!/^https?:\/\//i.test(u)){
+    const local = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(u);
+    u = (local ? 'http://' : 'https://') + u;
+  }
+  u = u.replace(/\/+$/,'');
+  u = u.replace(/\/api\/health$/i,'/api');
+  if(!/\/api$/i.test(u)) u += '/api';
+  return u;
+}
+function srvHost(url){ try{ const x = new URL(url); return x.host + (x.pathname && x.pathname!=='/api' ? x.pathname : ''); }catch(e){ return url||''; } }
+// Страница открыта по https — браузер не пустит запросы на http:// (кроме localhost)
+function srvIsMixed(url){ return location.protocol==='https:' && /^http:\/\//i.test(url||'') && !/^http:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(url); }
+
+const __srvStatus = {};
+async function srvPing(url, timeoutMs){
+  const t0 = performance.now();
+  const ctrl = (typeof AbortController!=='undefined') ? new AbortController() : null;
+  const tm = setTimeout(()=>{ try{ ctrl && ctrl.abort(); }catch(e){} }, timeoutMs || 8000);
+  try{
+    const r = await fetch(url.replace(/\/+$/,'') + '/health', { cache:'no-store', signal: ctrl ? ctrl.signal : undefined });
+    const ms = Math.round(performance.now() - t0);
+    let b = null; try{ b = await r.json(); }catch(e){}
+    if(!r.ok) return { ok:false, ms, error:'Ошибка ' + r.status };
+    if(!b || b.ok !== true) return { ok:false, ms, error:'Это не сервер XCAR' };
+    return { ok:true, ms, time:b.time, name:b.name };
+  }catch(e){
+    const ms = Math.round(performance.now() - t0);
+    if(e && e.name==='AbortError') return { ok:false, ms, error:'Не отвечает' };
+    if(srvIsMixed(url)) return { ok:false, ms, error: srvIsPrivateUrl(url) ? 'Только по Wi-Fi-адресу' : 'Нужен https://' };
+    return { ok:false, ms, error:'Недоступен' };
+  }finally{ clearTimeout(tm); }
+}
+function srvStatusOf(s){
+  if(!s || !s.url) return { state:'', label:'Не настроен' };
+  const st = __srvStatus[s.id];
+  if(!st) return { state:'', label:'Не проверен' };
+  if(st.state==='checking') return { state:'checking', label:'Проверка…' };
+  if(st.state==='ok') return { state:'ok', label:'В сети · '+st.ms+' мс' };
+  if(st.state==='slow') return { state:'slow', label:'Медленно · '+st.ms+' мс' };
+  return { state:'err', label: st.error || 'Недоступен' };
+}
+async function srvCheck(id, timeoutMs){
+  const c = srvLoad();
+  const s = c.servers.find(x=>x.id===id);
+  if(!s || !s.url) return { ok:false, error:'Адрес не указан' };
+  __srvStatus[id] = { state:'checking' };
+  srvRefreshUi();
+  // Бесплатный Render «засыпает» и просыпается до ~50 секунд — даём время.
+  const r = await srvPing(s.url, timeoutMs || 55000);
+  __srvStatus[id] = { state: r.ok ? (r.ms>2000 ? 'slow' : 'ok') : 'err', ms:r.ms, error:r.error, at:Date.now() };
+  srvRefreshUi();
+  return r;
+}
+async function srvCheckAll(){
+  const c = srvLoad();
+  const list = c.servers.filter(s=>s.url);
+  if(!list.length){ showToast('Сначала укажите адрес хотя бы одного сервера'); return; }
+  await Promise.all(list.map(s=>srvCheck(s.id)));
+  const okN = list.filter(s=>['ok','slow'].includes((__srvStatus[s.id]||{}).state)).length;
+  showToast(`В сети: ${okN} из ${list.length}`);
+}
+
+/* ---- автопереключение на резервный ---- */
+let __srvFailoverBusy = null;
+let __srvFailoverLastFail = 0;
+async function srvTryFailover(){
+  const c = srvLoad();
+  if(!c.autoFailover) return false;
+  if(Date.now() - __srvFailoverLastFail < 30000) return false;
+  if(__srvFailoverBusy) return __srvFailoverBusy;
+  __srvFailoverBusy = (async ()=>{
+    const failedId = c.activeId;
+    const candidates = c.servers.filter(s=>s.id!==failedId && s.url && s.enabled!==false);
+    for(const s of candidates){
+      const r = await srvPing(s.url, 7000);
+      if(r.ok){
+        const c2 = srvLoad(); c2.activeId = s.id; srvSave(c2); srvApply(c2);
+        __srvStatus[s.id] = { state:'ok', ms:r.ms, at:Date.now() };
+        __srvStatus[failedId] = { state:'err', error:'Не отвечал', at:Date.now() };
+        showToast(`Сервер не отвечал — переключено на «${s.name}»`);
+        srvRefreshUi();
+        return true;
+      }
+    }
+    __srvFailoverLastFail = Date.now();
+    return false;
+  })();
+  try{ return await __srvFailoverBusy; } finally{ __srvFailoverBusy = null; }
+}
+function srvToggleFailover(on){
+  const c = srvLoad(); c.autoFailover = !!on; srvSave(c);
+  showToast(on ? 'Автопереключение включено' : 'Автопереключение выключено');
+}
+
+/* ---- пункт в меню Настроек и чип на экране входа ---- */
+function srvSettingsEntry(){
+  const c = srvLoad(); const a = srvActive(c); const role = srvRole(a.role);
+  const st = srvStatusOf(a);
+  return `<div class="settings-item" style="cursor:pointer;" onclick="openServerSettings()">
+    <div style="display:flex;align-items:center;gap:12px;min-width:0;">
+      <div class="srv-card-ic srv-ic-${role}" style="width:36px;height:36px;border-radius:11px;">${SRV_ICONS[role]}</div>
+      <div style="min-width:0;"><div class="st">Серверы</div>
+        <div class="sd" style="display:flex;align-items:center;gap:6px;"><span class="srv-dot ${st.state}"></span><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(a.name)} · ${esc(a.url ? srvHost(a.url) : 'не настроен')}</span></div>
+      </div>
+    </div>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="color:var(--text-faint);flex-shrink:0;"><path d="M9 18l6-6-6-6"/></svg>
+  </div>`;
+}
+function srvUpdateAuthChip(){
+  const nameEl = document.getElementById('authServerName');
+  const dotEl = document.getElementById('authServerDot');
+  if(!nameEl) return;
+  const a = srvActive();
+  nameEl.textContent = a.name;
+  if(dotEl) dotEl.className = 'srv-dot ' + srvStatusOf(a).state;
+}
+function srvRefreshUi(){
+  srvUpdateAuthChip();
+  const root = document.getElementById('srvRoot');
+  if(root) root.innerHTML = srvRenderBody();
+}
+
+/* ---- главный экран «Серверы» ---- */
+function openServerSettings(){
+  const back = document.documentElement.classList.contains('auth-pending') ? 'closeSheet()' : 'openSettings()';
+  openSheet(`
+    ${subHeadTo('Серверы', back)}
+    <div class="sheet-body"><div id="srvRoot">${srvRenderBody()}</div></div>
+  `);
+  const a = srvActive();
+  if(a.url && !__srvStatus[a.id]) srvCheck(a.id);
+}
+function srvRenderBody(){
+  const c = srvLoad(); const a = srvActive(c); const aRole = srvRole(a.role);
+  const ast = srvStatusOf(a); const aRaw = __srvStatus[a.id] || {};
+  const checkedAt = aRaw.at ? new Date(aRaw.at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}) : '—';
+  const heroCls = ast.state==='ok' || ast.state==='slow' ? 'ok' : (ast.state==='err' ? 'err' : '');
+  const cards = c.servers.map((s,i)=>{
+    const role = srvRole(s.role); const st = srvStatusOf(s); const isActive = s.id===c.activeId;
+    return `<div class="srv-card ${isActive?'active':''} ${s.enabled===false?'disabled':''}">
+      <div class="srv-card-top">
+        <div class="srv-card-ic srv-ic-${role}">${SRV_ICONS[role]}</div>
+        <div style="min-width:0;flex:1;">
+          <div class="srv-card-title">${esc(s.name)}${isActive?'<span class="srv-badge on">Активен</span>':`<span class="srv-badge">${SRV_ROLES[role].label}</span>`}</div>
+          <div class="srv-card-sub ${s.url?'':'srv-empty'}">${s.url ? esc(srvHost(s.url)) : 'Адрес не указан — нажмите ✎'}</div>
+        </div>
+      </div>
+      <div class="srv-card-row">
+        <span class="srv-pill ${st.state}"><span class="srv-dot ${st.state}"></span>${esc(st.label)}</span>
+        <div class="srv-card-btns">
+          ${i>0?`<button class="srv-mini" title="Выше в очереди" onclick="srvMoveUp('${s.id}')">${SVG_UP}</button>`:''}
+          ${s.url?`<button class="srv-mini" title="Проверить" onclick="srvCheck('${s.id}')">${SVG_PULSE}</button>`:''}
+          <button class="srv-mini" title="Настроить" onclick="srvEdit('${s.id}')">${SVG_EDIT}</button>
+          ${!isActive ? `<button class="srv-mini primary" onclick="${s.url?`srvConnect('${s.id}')`:`srvEdit('${s.id}')`}">${s.url?'Подключить':'Настроить'}</button>` : ''}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  return `
+    ${window.XCAR_LAN_PAGE ? `<div class="srv-note" style="margin:4px 0 12px;display:flex;gap:10px;align-items:flex-start;"><span style="font-size:18px;">📶</span><span><b style="color:var(--text);">Режим домашнего Wi-Fi.</b> Приложение открыто прямо с сервера ${esc(location.host)}. Всё работает, кроме push-уведомлений (им нужен https).</span></div>` : ''}
+    <div class="srv-hero ${heroCls}">
+      <div class="srv-hero-top">
+        <div class="srv-hero-ic srv-ic-${aRole}">${SRV_ICONS[aRole]}</div>
+        <div style="min-width:0;flex:1;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <div class="srv-hero-kicker">Сейчас подключено</div>
+            <span class="srv-pill ${ast.state}" style="padding:3px 8px;font-size:10.5px;"><span class="srv-dot ${ast.state}"></span>${ast.state==='ok'||ast.state==='slow'?'Онлайн':(ast.state==='err'?'Офлайн':(ast.state==='checking'?'Проверка':'Не проверен'))}</span>
+          </div>
+          <div class="srv-hero-name">${esc(a.name)}</div>
+        </div>
+      </div>
+      <div class="srv-hero-url">${esc(a.url || 'Адрес не указан')}</div>
+      <div class="srv-hero-stats">
+        <div class="srv-stat"><div class="srv-stat-l">Тип</div><div class="srv-stat-v">${SRV_ROLES[aRole].label}</div></div>
+        <div class="srv-stat"><div class="srv-stat-l">Отклик</div><div class="srv-stat-v">${aRaw.ms!=null && aRaw.state!=='err' ? aRaw.ms+' мс' : (aRaw.state==='err'?'нет':'—')}</div></div>
+        <div class="srv-stat"><div class="srv-stat-l">Проверен</div><div class="srv-stat-v">${checkedAt}</div></div>
+      </div>
+      ${ast.state==='err' ? `<div class="srv-note bad" style="margin:12px 0 0;">Сервер не отвечает: ${esc(ast.label)}. Подключите другой сервер из списка ниже.</div>` : ''}
+      <div class="srv-hero-actions">
+        <button class="btn ghost" onclick="srvCheckAll()">Проверить все</button>
+        <button class="btn primary" onclick="srvCheck('${a.id}')">Проверить связь</button>
+      </div>
+    </div>
+
+    <div class="settings-item" style="border-bottom:none;padding-top:4px;">
+      <div><div class="st">🔁 Автопереключение</div><div class="sd">Если текущий сервер не отвечает — приложение само перейдёт на следующий живой сервер из списка</div></div>
+      <label class="switch"><input type="checkbox" ${c.autoFailover?'checked':''} onchange="srvToggleFailover(this.checked)"><span class="slider"></span></label>
+    </div>
+
+    <div class="section-title srv-sec" style="margin-top:8px;"><span>Мои серверы</span></div>
+    <div style="font-size:11.5px;color:var(--text-dim);margin:-2px 0 10px;line-height:1.5;">Порядок в списке — это очередь автопереключения. Стрелка ↑ поднимает сервер выше.</div>
+    <div class="srv-list">${cards}</div>
+    <button class="srv-add" onclick="srvEdit(null)"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Добавить сервер</button>
+
+    <div class="section-title srv-sec" style="margin-top:24px;"><span>Резервная копия настроек серверов</span></div>
+    <div style="font-size:11.5px;color:var(--text-dim);margin:-2px 0 10px;line-height:1.5;">Сохраните список серверов текстом — например, в заметки или WhatsApp — и вставьте на другом телефоне или ПК.</div>
+    <div class="srv-tiles">
+      <button class="srv-tile" onclick="srvCopyBackup()"><div class="srv-tile-ic">📋</div><div class="srv-tile-t">Скопировать</div><div class="srv-tile-d">Все серверы в буфер обмена</div></button>
+      <button class="srv-tile" onclick="srvPasteBackup()"><div class="srv-tile-ic">📥</div><div class="srv-tile-t">Вставить</div><div class="srv-tile-d">Восстановить из буфера обмена</div></button>
+      <button class="srv-tile wide" onclick="srvShowBackupText()"><div class="srv-tile-ic">📝</div><div><div class="srv-tile-t">Показать текстом</div><div class="srv-tile-d">Посмотреть, отредактировать или вставить текст вручную</div></div></button>
+    </div>
+
+    <div class="section-title srv-sec" style="margin-top:24px;"><span>Домашний сервер</span></div>
+    <div class="srv-tiles">
+      <button class="srv-tile wide" onclick="srvUbuntuGuide()"><div class="srv-tile-ic srv-ic-home">${SRV_ICONS.home}</div><div><div class="srv-tile-t">Как поднять сервер на Ubuntu дома</div><div class="srv-tile-d">Пошагово: по Wi-Fi через IP или из любого места по https</div></div></button>
+      ${!window.XCAR_LAN_PAGE ? c.servers.filter(x=>x.url && srvIsMixed(x.url) && srvIsPrivateUrl(x.url)).map(x=>`<a class="srv-tile wide" style="text-decoration:none;" href="${escapeAttr(srvAppUrl(x.url))}" target="_blank" rel="noopener"><div class="srv-tile-ic">📶</div><div><div class="srv-tile-t">Открыть XCAR по Wi-Fi</div><div class="srv-tile-d">${esc(srvAppUrl(x.url))} — «${esc(x.name)}»</div></div></a>`).join('') : ''}
+    </div>
+
+    <button class="btn danger-ghost" style="width:100%;margin-top:22px;" onclick="srvResetDefaults()">Сбросить список серверов</button>
+  `;
+}
+function srvMoveUp(id){
+  const c = srvLoad(); const i = c.servers.findIndex(s=>s.id===id);
+  if(i>0){ const t = c.servers[i-1]; c.servers[i-1] = c.servers[i]; c.servers[i] = t; srvSave(c); srvRefreshUi(); }
+}
+async function srvResetDefaults(){
+  if(!await confirmDelete('Список серверов вернётся к стандартному (Основной, Резервный, Домашний Ubuntu) и приложение подключится к основному серверу. Продолжить?', 'Сбросить')) return;
+  const c = srvDefaultConfig(); srvSave(c); srvApply(c);
+  Object.keys(__srvStatus).forEach(k=>delete __srvStatus[k]);
+  srvRefreshUi(); showToast('Серверы сброшены к стандартным');
+}
+
+/* ---- добавить / изменить сервер ---- */
+let __srvEdit = null;
+function srvEdit(id, presetRole){
+  const c = srvLoad();
+  const s = id ? c.servers.find(x=>x.id===id) : null;
+  __srvEdit = { id: s ? s.id : null, role: s ? srvRole(s.role) : srvRole(presetRole || 'custom') };
+  const seg = Object.keys(SRV_ROLES).map(r=>`<button type="button" data-role="${r}" class="${__srvEdit.role===r?'on':''}" onclick="srvEditRole('${r}')"><span class="srv-seg-ic srv-ic-${r}">${SRV_ICONS[r]}</span>${SRV_ROLES[r].label}</button>`).join('');
+  const isActive = s && s.id===c.activeId;
+  openSheet(`
+    ${subHeadTo(s ? 'Настройка сервера' : 'Новый сервер', 'openServerSettings()')}
+    <div class="sheet-body">
+      <div class="field"><label>Тип сервера</label></div>
+      <div class="srv-seg" id="srvSeg">${seg}</div>
+      <div class="field"><label>Название</label><input id="srv_name" value="${escapeAttr(s ? s.name : '')}" placeholder="${escapeAttr(SRV_ROLES[__srvEdit.role].full)}"></div>
+      <div class="field"><label>Адрес сервера</label><input id="srv_url" value="${escapeAttr(s ? s.url : '')}" placeholder="https://xcar.mydomain.ru" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="url" oninput="srvEditPreview()"></div>
+      <div class="srv-preview" id="srvPreview"></div>
+      <div id="srvMixed"></div>
+      <div id="srvRoleHint"></div>
+      <div class="settings-item">
+        <div><div class="st">Участвует в автопереключении</div><div class="sd">Если выключить — на этот сервер можно перейти только вручную</div></div>
+        <label class="switch"><input type="checkbox" id="srv_enabled" ${!s || s.enabled!==false ? 'checked':''}><span class="slider"></span></label>
+      </div>
+      <div class="srv-test" id="srvTestBox"><span class="srv-dot"></span><span style="flex:1;color:var(--text-dim);">Нажмите «Проверить», чтобы убедиться, что сервер отвечает</span></div>
+      <button class="btn ghost" style="width:100%;margin-top:8px;" onclick="srvEditTest()">⚡ Проверить соединение</button>
+      <div class="btn-row" style="margin-top:12px;">
+        <button class="btn ghost" onclick="srvEditSave(false)">Сохранить</button>
+        ${isActive ? '' : `<button class="btn primary" onclick="srvEditSave(true)">Сохранить и подключить</button>`}
+      </div>
+      ${s && !isActive && c.servers.length>1 ? `<button class="btn danger-ghost" style="width:100%;margin-top:12px;" onclick="srvDelete('${s.id}')">Удалить сервер</button>` : ''}
+    </div>
+  `);
+  srvEditPreview();
+}
+function srvEditRole(r){
+  if(!__srvEdit) return;
+  __srvEdit.role = r;
+  document.querySelectorAll('#srvSeg button').forEach(b=>b.classList.toggle('on', b.getAttribute('data-role')===r));
+  const nameEl = document.getElementById('srv_name');
+  if(nameEl) nameEl.placeholder = SRV_ROLES[r].full;
+  srvEditPreview();
+}
+function srvEditPreview(){
+  const raw = (document.getElementById('srv_url')||{}).value || '';
+  const url = srvNormalizeUrl(raw);
+  const pv = document.getElementById('srvPreview');
+  if(pv) pv.textContent = url ? '→ ' + url : '';
+  const mx = document.getElementById('srvMixed');
+  if(mx) mx.innerHTML = !(url && srvIsMixed(url)) ? '' : (srvIsPrivateUrl(url)
+    ? `<div class="srv-note warn">📶 <b>Это адрес в домашнем Wi-Fi.</b> Из этой версии приложения (она открыта по https) браузер к нему не пустит — поэтому откройте XCAR прямо с домашнего сервера, он сам раздаёт приложение:
+        <a class="btn primary" style="display:flex;align-items:center;justify-content:center;margin-top:10px;text-decoration:none;" href="${escapeAttr(srvAppUrl(url))}" target="_blank" rel="noopener">Открыть ${esc(srvHost(srvAppUrl(url)).replace(/\/$/,''))}</a>
+        <div style="margin-top:8px;font-size:11.2px;color:var(--text-dim);">Телефон должен быть в том же Wi-Fi. Там войдите в аккаунт — данные подтянутся с сервера. Сохранить адрес здесь тоже можно.</div></div>`
+    : `<div class="srv-note warn">⚠️ Адрес начинается с <b>http://</b>, а приложение открыто по <b>https://</b> — браузер такое соединение заблокирует. Нужен https-адрес: проще всего через Cloudflare Tunnel (см. <a style="color:var(--accent);font-weight:700;cursor:pointer;" onclick="srvUbuntuGuide()">инструкцию</a>).</div>`);
+  const rh = document.getElementById('srvRoleHint');
+  if(rh && __srvEdit){
+    const hints = {
+      main: 'Обычно это облачный сервер, например <b>https://xcar-ser.onrender.com</b>.',
+      reserve: 'Второй сервер на случай, если основной упал. Чтобы после переключения не входить заново — на нём должны быть те же данные и тот же <b>JWT_SECRET</b> (скопируйте папку <b>data</b> с основного).',
+      home: 'Ваш компьютер дома на Ubuntu. Дома по Wi-Fi — IP, например <b>192.168.1.50:8080</b>; из любого места — https-адрес туннеля или домена, например <b>https://xcar.mydomain.ru</b>. <a style="color:var(--accent);font-weight:700;cursor:pointer;" onclick="srvUbuntuGuide()">Как настроить →</a>',
+      custom: 'Любой сервер с установленным XCAR server. Достаточно домена — <b>/api</b> добавится сам.'
+    };
+    rh.innerHTML = `<div class="srv-note">${hints[__srvEdit.role]}</div>`;
+  }
+}
+async function srvEditTest(){
+  const url = srvNormalizeUrl((document.getElementById('srv_url')||{}).value);
+  const box = document.getElementById('srvTestBox');
+  if(!url){ showToast('Укажите адрес сервера'); return; }
+  if(box) box.innerHTML = `<span class="srv-dot checking"></span><span style="flex:1;">Проверяю ${esc(srvHost(url))}… (сервер Render может просыпаться до минуты)</span>`;
+  const r = await srvPing(url, 55000);
+  if(!document.getElementById('srvTestBox')) return;
+  document.getElementById('srvTestBox').innerHTML = r.ok
+    ? `<span class="srv-dot ok"></span><span style="flex:1;"><b style="color:var(--accent-2);">Сервер работает</b> · отклик ${r.ms} мс</span>`
+    : `<span class="srv-dot err"></span><span style="flex:1;"><b style="color:var(--danger);">${esc(r.error)}</b> · проверьте адрес и что сервер запущен</span>`;
+  if(__srvEdit && __srvEdit.id) __srvStatus[__srvEdit.id] = { state: r.ok ? (r.ms>2000?'slow':'ok') : 'err', ms:r.ms, error:r.error, at:Date.now() };
+}
+async function srvEditSave(connect){
+  if(!__srvEdit) return;
+  const url = srvNormalizeUrl((document.getElementById('srv_url')||{}).value);
+  const name = ((document.getElementById('srv_name')||{}).value || '').trim() || SRV_ROLES[__srvEdit.role].full;
+  const enabled = !!(document.getElementById('srv_enabled')||{}).checked;
+  if(connect && !url){ showToast('Укажите адрес сервера'); return; }
+  const c = srvLoad();
+  let s = __srvEdit.id ? c.servers.find(x=>x.id===__srvEdit.id) : null;
+  const urlChanged = !s || s.url !== url;
+  if(!s){ s = { id: srvNewId() }; c.servers.push(s); }
+  Object.assign(s, { name, url, role: __srvEdit.role, enabled });
+  if(urlChanged) delete __srvStatus[s.id];
+  if(s.id===c.activeId && !url){ showToast('У активного сервера должен быть адрес'); return; }
+  srvSave(c);
+  if(s.id===c.activeId) srvApply(c);
+  if(connect){ await srvConnect(s.id); return; }
+  showToast('Сервер сохранён');
+  openServerSettings();
+}
+async function srvDelete(id){
+  const c = srvLoad(); const s = c.servers.find(x=>x.id===id);
+  if(!s || id===c.activeId) return;
+  if(!await confirmDelete(`Удалить «${s.name}» из списка серверов? Сам сервер и данные на нём не пострадают.`, 'Удалить')) return;
+  c.servers = c.servers.filter(x=>x.id!==id); srvSave(c);
+  delete __srvStatus[id];
+  showToast('Сервер удалён из списка');
+  openServerSettings();
+}
+
+/* ---- переключение на другой сервер ---- */
+async function srvConnect(id){
+  const c = srvLoad(); const s = c.servers.find(x=>x.id===id);
+  if(!s) return;
+  if(!s.url){ srvEdit(id); return; }
+  if(!document.getElementById('srvRoot')) openServerSettings();
+  showToast(`Проверяю «${s.name}»…`);
+  const r = await srvCheck(id);
+  if(!r.ok){
+    if(!await confirmDelete(`Сервер «${s.name}» сейчас не отвечает (${r.error}). Всё равно переключиться на него?`, 'Переключить')) return;
+  }
+  const c2 = srvLoad(); c2.activeId = id; srvSave(c2); srvApply(c2);
+  __srvFailoverLastFail = 0;
+  srvRefreshUi();
+  showToast(`Подключено: ${s.name}`);
+  if(!r.ok || isLoggedOut()) return;
+  // Проверяем, что вход действует и на новом сервере
+  try{
+    await apiFetch('/billing/status', { method:'GET', __noFailover:true });
+  }catch(e){
+    if(isLoggedOut()){
+      openSheet(`
+        ${subHeadTo('Нужен вход', 'openServerSettings()')}
+        <div class="sheet-body">
+          <div class="srv-note warn" style="margin-top:4px;">На сервере «${esc(s.name)}» ваш вход не действует — у него своя база аккаунтов или другой JWT_SECRET. Данные на этом устройстве сохранены.</div>
+          <button class="btn primary" style="width:100%;margin-top:8px;" onclick="closeSheet();openLoginScreen();">Войти в аккаунт</button>
+          <button class="btn ghost" style="width:100%;margin-top:10px;" onclick="openServerSettings()">Вернуться к серверам</button>
+        </div>`);
+    }
+    return;
+  }
+  openSheet(`
+    ${subHeadTo('Сервер подключён', 'openServerSettings()')}
+    <div class="sheet-body">
+      <div class="srv-test" style="margin-top:4px;"><span class="srv-dot ok"></span><span style="flex:1;">Подключено: <b>«${esc(s.name)}»</b>. Что сделать с данными?</span></div>
+      <div class="srv-tiles" style="margin-top:12px;">
+        <button class="srv-tile wide" onclick="closeSheet();manualSyncNow();"><div class="srv-tile-ic">⬇️</div><div><div class="srv-tile-t">Загрузить данные с сервера</div><div class="srv-tile-d">Если на этом сервере более свежие данные</div></div></button>
+        <button class="srv-tile wide" onclick="srvPushAll()"><div class="srv-tile-ic">⬆️</div><div><div class="srv-tile-t">Отправить данные с устройства на сервер</div><div class="srv-tile-d">Если сервер новый/пустой — например, только что поднятый Ubuntu</div></div></button>
+        <button class="srv-tile wide" onclick="openServerSettings()"><div class="srv-tile-ic">✋</div><div><div class="srv-tile-t">Оставить как есть</div><div class="srv-tile-d">Данные синхронизируются при следующих изменениях</div></div></button>
+      </div>
+    </div>`);
+}
+async function srvPushAll(){
+  if(isLoggedOut()){ showToast('Сначала войдите в аккаунт'); return; }
+  if(!await confirmDelete('Данные этого устройства заменят данные вашего аккаунта на текущем сервере. Продолжить?', 'Отправить')) return;
+  showSyncOverlay();
+  const el = document.querySelector('#syncOverlay .sync-overlay-text'); if(el) el.textContent = 'Отправка данных на сервер…';
+  const failed = [];
+  for(const key of SYNC_KEYS){
+    try{
+      let value = DB[key];
+      if(value===undefined) continue;
+      if(key==='settings' && value && typeof value==='object'){ value = Object.assign({}, value); delete value.windowsMode; }
+      await apiFetch('/data/'+key, { method:'PUT', body: JSON.stringify({ value }), __noFailover:true });
+    }catch(e){ failed.push((typeof BACKUP_KEY_LABELS!=='undefined' && BACKUP_KEY_LABELS[key]) || key); }
+  }
+  finishSyncOverlay(!failed.length, failed.length ? 'Не удалось отправить: '+failed.join(', ') : 'Данные отправлены на сервер');
+  openServerSettings();
+}
+
+/* ---- резервная копия настроек серверов: текст + буфер обмена ---- */
+function srvExportText(){
+  const c = srvLoad();
+  return JSON.stringify({
+    type: 'xcar-servers', version: 1, exportedAt: new Date().toISOString(),
+    activeId: c.activeId, autoFailover: !!c.autoFailover,
+    servers: c.servers.map(s=>({ id:s.id, name:s.name, role:srvRole(s.role), url:s.url||'', enabled:s.enabled!==false }))
+  }, null, 2);
+}
+async function srvClipboardWrite(text){
+  try{ await navigator.clipboard.writeText(text); return true; }
+  catch(e){
+    try{
+      const ta = document.createElement('textarea'); ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+      document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); document.body.removeChild(ta); return ok;
+    }catch(e2){ return false; }
+  }
+}
+async function srvCopyBackup(){
+  const ok = await srvClipboardWrite(srvExportText());
+  if(ok) showToast('Настройки серверов скопированы');
+  else { showToast('Нет доступа к буферу — скопируйте текст вручную'); srvShowBackupText(); }
+}
+async function srvPasteBackup(){
+  let text = '';
+  try{ text = await navigator.clipboard.readText(); }catch(e){}
+  if(!text){ showToast('Вставьте текст вручную (долгое нажатие → Вставить)'); srvShowBackupText(true); return; }
+  srvImportText(text);
+}
+function srvParseBackup(text){
+  let t = (text||'').trim();
+  const a = t.indexOf('{'), b = t.lastIndexOf('}');
+  if(a<0 || b<a) throw new Error('В тексте нет настроек серверов');
+  let data;
+  try{ data = JSON.parse(t.slice(a, b+1)); }catch(e){ throw new Error('Текст повреждён — скопируйте его целиком'); }
+  if(!data || !Array.isArray(data.servers) || !data.servers.length) throw new Error('Это не копия настроек серверов XCAR');
+  const seen = {};
+  const servers = data.servers.filter(s=>s && typeof s==='object').map(s=>{
+    let id = typeof s.id==='string' && s.id && !seen[s.id] ? s.id : srvNewId();
+    seen[id] = 1;
+    const role = srvRole(s.role);
+    return { id, name: String(s.name || SRV_ROLES[role].full).slice(0,60), role, url: srvNormalizeUrl(s.url || ''), enabled: s.enabled!==false };
+  });
+  if(!servers.length) throw new Error('В копии нет серверов');
+  let activeId = servers.some(s=>s.id===data.activeId && s.url) ? data.activeId : (servers.find(s=>s.url)||servers[0]).id;
+  return { activeId, autoFailover: data.autoFailover!==false, servers };
+}
+let __srvPendingImport = null;
+function srvImportText(text){
+  let cfg;
+  try{ cfg = srvParseBackup(text); }catch(e){ showToast(e.message); return; }
+  __srvPendingImport = cfg;
+  const rows = cfg.servers.map(s=>{
+    const role = srvRole(s.role);
+    return `<div class="srv-card ${s.id===cfg.activeId?'active':''}" style="padding:11px 12px;">
+      <div class="srv-card-top">
+        <div class="srv-card-ic srv-ic-${role}">${SRV_ICONS[role]}</div>
+        <div style="min-width:0;flex:1;"><div class="srv-card-title">${esc(s.name)}${s.id===cfg.activeId?'<span class="srv-badge on">Активный</span>':`<span class="srv-badge">${SRV_ROLES[role].label}</span>`}</div>
+        <div class="srv-card-sub ${s.url?'':'srv-empty'}">${s.url?esc(srvHost(s.url)):'без адреса'}</div></div>
+      </div></div>`;
+  }).join('');
+  openSheet(`
+    ${subHeadTo('Восстановить серверы', 'openServerSettings()')}
+    <div class="sheet-body">
+      <div class="srv-test" style="margin-top:4px;"><span class="srv-dot ok"></span><span style="flex:1;">Найдено серверов: <b>${cfg.servers.length}</b> · автопереключение ${cfg.autoFailover?'вкл.':'выкл.'}</span></div>
+      <div class="srv-list" style="margin-top:12px;">${rows}</div>
+      <div class="srv-note">Текущий список серверов на этом устройстве будет заменён. Данные аккаунта не затрагиваются.</div>
+      <div class="btn-row" style="margin-top:6px;">
+        <button class="btn ghost" onclick="openServerSettings()">Отмена</button>
+        <button class="btn primary" onclick="srvApplyImport()">Восстановить</button>
+      </div>
+    </div>`);
+}
+function srvApplyImport(){
+  if(!__srvPendingImport) return;
+  const prevBase = window.XCAR_API_BASE;
+  srvSave(__srvPendingImport); srvApply(__srvPendingImport);
+  __srvPendingImport = null;
+  Object.keys(__srvStatus).forEach(k=>delete __srvStatus[k]);
+  showToast(window.XCAR_API_BASE!==prevBase ? 'Серверы восстановлены · активный сервер сменён' : 'Настройки серверов восстановлены');
+  openServerSettings();
+}
+function srvShowBackupText(emptyForPaste){
+  openSheet(`
+    ${subHeadTo('Настройки серверов текстом', 'openServerSettings()')}
+    <div class="sheet-body">
+      <div style="font-size:12px;color:var(--text-dim);line-height:1.55;margin:2px 0 10px;">
+        ${emptyForPaste ? 'Вставьте сюда текст копии и нажмите «Применить».' : 'Это ваш список серверов. Скопируйте его и сохраните — позже вставьте сюда же и нажмите «Применить». Можно редактировать прямо в поле.'}
+      </div>
+      <textarea id="srvBackupArea" class="srv-textbox" spellcheck="false" placeholder='{ "type": "xcar-servers", ... }'>${emptyForPaste ? '' : esc(srvExportText())}</textarea>
+      <div class="btn-row" style="margin-top:12px;">
+        <button class="btn ghost" onclick="srvAreaCopy()">📋 Скопировать</button>
+        <button class="btn ghost" onclick="srvAreaPaste()">📥 Из буфера</button>
+      </div>
+      <button class="btn primary" style="width:100%;margin-top:10px;" onclick="srvImportText(document.getElementById('srvBackupArea').value)">✅ Применить текст</button>
+    </div>`);
+}
+async function srvAreaCopy(){
+  const ta = document.getElementById('srvBackupArea'); if(!ta) return;
+  if(!ta.value.trim()){ showToast('Поле пустое'); return; }
+  const ok = await srvClipboardWrite(ta.value);
+  if(ok) showToast('Скопировано в буфер обмена');
+  else { ta.focus(); ta.select(); showToast('Выделите текст и скопируйте вручную'); }
+}
+async function srvAreaPaste(){
+  const ta = document.getElementById('srvBackupArea'); if(!ta) return;
+  try{
+    const t = await navigator.clipboard.readText();
+    if(t){ ta.value = t; showToast('Текст вставлен из буфера'); } else showToast('Буфер обмена пуст');
+  }catch(e){ ta.focus(); showToast('Нет доступа к буферу — долгое нажатие → Вставить'); }
+}
+
+/* ---- инструкция: домашний сервер на Ubuntu ---- */
+function srvCode(cmd){
+  return `<div class="srv-code"><span>${esc(cmd)}</span><button title="Скопировать" onclick="srvCopyCode(this)">${SVG_COPY}</button></div>`;
+}
+async function srvCopyCode(btn){
+  const t = btn.parentElement.querySelector('span').textContent;
+  const ok = await srvClipboardWrite(t);
+  showToast(ok ? 'Команда скопирована' : 'Выделите команду вручную');
+}
+function srvUbuntuGuide(){
+  openSheet(`
+    ${subHeadTo('Сервер на Ubuntu дома', 'openServerSettings()')}
+    <div class="sheet-body">
+      <div class="srv-hero" style="margin-top:2px;">
+        <div class="srv-hero-top">
+          <div class="srv-hero-ic srv-ic-home">${SRV_ICONS.home}</div>
+          <div style="min-width:0;flex:1;"><div class="srv-hero-kicker">Домашний сервер</div><div class="srv-hero-name" style="white-space:normal;">Свой XCAR на Ubuntu</div></div>
+        </div>
+        <div style="font-size:12px;color:var(--text-dim);line-height:1.55;margin-top:10px;">Нужен любой компьютер с Ubuntu 22.04/24.04, который постоянно включён. Пользоваться можно дома по Wi-Fi через IP (вариант А) или из любого места по https (вариант Б). Команды ниже копируются кнопкой справа и вставляются в терминал Ubuntu.</div>
+      </div>
+      <div class="srv-steps">
+        <div class="srv-step"><div class="srv-step-t">Подключитесь к Ubuntu</div>
+          <div class="srv-step-d">Откройте терминал на самом компьютере или зайдите по SSH (замените логин и IP на свои).</div>
+          ${srvCode('ssh user@192.168.1.50')}</div>
+        <div class="srv-step"><div class="srv-step-t">Скопируйте папку XCAR</div>
+          <div class="srv-step-d">Перенесите на Ubuntu <b>всю распакованную папку</b> из архива (в ней <b>server</b> и <b>xcarapp</b>) — тогда сервер будет раздавать и само приложение. С компьютера, где лежит архив:</div>
+          ${srvCode('scp -r XCAR user@192.168.1.50:~/xcar')}</div>
+        <div class="srv-step"><div class="srv-step-t">Установите одной командой</div>
+          <div class="srv-step-d">Скрипт поставит Node.js, зависимости, создаст .env с паролем админки, откроет порт 8080 и запустит сервер с автозапуском. В конце покажет адрес для Wi-Fi.</div>
+          ${srvCode('cd ~/xcar/server && bash ubuntu-setup.sh')}</div>
+        <div class="srv-step"><div class="srv-step-t">Перенесите данные (по желанию)</div>
+          <div class="srv-step-d">Чтобы работал тот же вход, что и на основном сервере, скопируйте с него папку <b>data</b> (с файлом <b>.jwt-secret</b>) в <b>~/xcar/server/data</b> и перезапустите. Или просто войдите и нажмите «Отправить данные с устройства на сервер».</div>
+          ${srvCode('pm2 restart xcar-server')}</div>
+      </div>
+
+      <div class="section-title srv-sec" style="margin-top:22px;"><span>📶 Вариант А · дома по Wi-Fi (IP)</span></div>
+      <div class="srv-steps" style="counter-reset:srvstep 4;">
+        <div class="srv-step"><div class="srv-step-t">Узнайте IP сервера</div>
+          <div class="srv-step-d">Первый адрес вида <b>192.168.x.x</b> — ваш. Чтобы он не менялся, закрепите его в роутере (DHCP-резервирование / «статический IP»).</div>
+          ${srvCode('hostname -I')}</div>
+        <div class="srv-step"><div class="srv-step-t">Откройте XCAR на телефоне</div>
+          <div class="srv-step-d">Телефон — в том же Wi-Fi. В браузере наберите адрес с портом 8080 и войдите в аккаунт — данные подтянутся с сервера. Добавьте страницу на экран «Домой», чтобы открывать одним касанием.</div>
+          ${srvCode('http://192.168.1.50:8080')}
+          <div class="srv-note" style="margin-bottom:0;">Почему не из обычной версии? Она открыта по https, а браузеры не пускают https-страницы к http-адресам в локальной сети. Поэтому по Wi-Fi приложение открывается <b>с самого сервера</b>. Работает всё, кроме push-уведомлений. Вне дома этот адрес недоступен — там приложение само переключится на основной сервер (если включено автопереключение).</div></div>
+      </div>
+
+      <div class="section-title srv-sec" style="margin-top:22px;"><span>🌍 Вариант Б · из любого места (https)</span></div>
+      <div class="srv-steps" style="counter-reset:srvstep 6;">
+        <div class="srv-step"><div class="srv-step-t">Дайте серверу https-адрес</div>
+          <div class="srv-step-d">Проще всего — Cloudflare Tunnel, без проброса портов на роутере:</div>
+          ${srvCode('curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o cloudflared.deb && sudo dpkg -i cloudflared.deb')}
+          ${srvCode('cloudflared tunnel --url http://localhost:8080')}
+          <div class="srv-step-d" style="margin-top:8px;">Появится адрес вида <b>https://xxxx.trycloudflare.com</b>. Он временный — для постоянного подключите свой домен (<b>cloudflared tunnel login</b>).</div></div>
+        <div class="srv-step"><div class="srv-step-t">Подключите в XCAR</div>
+          <div class="srv-step-d">Серверы → <b>Домашний Ubuntu</b> → ✎ → вставьте https-адрес → «Проверить соединение» → «Сохранить и подключить». Проверка на самой Ubuntu:</div>
+          ${srvCode('curl http://localhost:8080/api/health')}</div>
+      </div>
+      <button class="btn primary" style="width:100%;margin-top:16px;" onclick="srvEdit((srvLoad().servers.find(s=>s.role==='home')||{}).id || null, 'home')">Указать адрес домашнего сервера</button>
+    </div>`);
+}
+srvUpdateAuthChip();
+
 function openSettings(){
   openSheet(`
     <div class="sheet-handle"></div>
@@ -5951,11 +6855,14 @@ function openSettings(){
       ${settingsMenuItem('💾','Резервное копирование', 'Экспорт JSON / Excel, импорт', `openBackupSettings()`)}
       ${settingsMenuItem('🔔','Сигналы и тарификация', 'Оповещения об окончании аренды', `openAlarmSettings()`)}
       ${settingsMenuItem('📲','Push-уведомления', __pushState.checked ? (__pushState.subscribed?'Включено':'Выключено') : 'В центр уведомлений телефона', `openPushSettings()`)}
+      ${settingsMenuItem('🛟','Тех. поддержка', 'Сообщить о проблеме администратору', `openSupportSettings()`)}
       ${settingsMenuItem('🎨','Цветовая тема', 'Акцентный цвет приложения', `openThemeSettings()`)}
       ${settingsMenuItem('🏁','Иконка приложения', DB.settings.appIcon && APP_ICON_VARIANTS[DB.settings.appIcon] ? APP_ICON_VARIANTS[DB.settings.appIcon].label : 'Текущая (по умолчанию)', `openAppIconSettings()`)}
       ${settingsMenuItem('📄','Формат документов', DOC_FORMAT_LABELS[DB.settings.docFormat] || DOC_FORMAT_LABELS.image, `openDocFormatSettings()`)}
       ${settingsMenuItem('💳','Аренда и долги', 'Учёт долга и порядок списания платежа', `openDebtHub()`)}
       ${settingsMenuItem('⚙️','Общие настройки', 'Валюта, статистика, очистка данных', `openGeneralSettings()`)}
+      <div class="section-title srv-sec" style="margin-top:22px;"><span>Сервер</span></div>
+      ${srvSettingsEntry()}
     </div>
   `);
 }
@@ -6068,6 +6975,47 @@ async function disablePushNotifications(){
   }catch(e){
     console.error('disablePushNotifications', e);
     showToast('Не удалось выключить уведомления');
+  }
+}
+/* =================== ТЕХ. ПОДДЕРЖКА (раздел 20) =================== */
+// Клиент описывает свою проблему текстом — уходит на сервер
+// (POST /api/support) и видна супер-админу в /admin → вкладка «Поддержка».
+// Обратной связи внутри приложения нет (админ отвечает вне приложения — по
+// указанному номеру или как договорено) — это сознательно самый простой
+// вариант, тот же принцип, что и у заявок на тариф (раздел 4/8): очередь
+// обращений в один конец, без встроенного чата.
+function openSupportSettings(){
+  if(isLoggedOut()){
+    openSheet(`
+      ${subHeadTo('Тех. поддержка', 'openSettings()')}
+      <div class="sheet-body">
+        <div style="font-size:13px;color:var(--text-dim);line-height:1.6;">Войдите в аккаунт, чтобы отправить сообщение в поддержку.</div>
+        <button class="btn primary" style="width:100%;margin-top:14px;" onclick="openLoginScreen()">Войти в аккаунт</button>
+      </div>
+    `);
+    return;
+  }
+  const user = authGetUser();
+  openSheet(`
+    ${subHeadTo('Тех. поддержка', 'openSettings()')}
+    <div class="sheet-body">
+      <div style="font-size:12.5px;color:var(--text-dim);line-height:1.6;margin-bottom:14px;">Опишите проблему — сообщение уйдёт напрямую администратору сервиса.</div>
+      <div class="field"><label>Ваш телефон для связи</label><input id="f_support_phone" value="${esc((user&&user.phone)||'')}" placeholder="+7 900 123-45-67"></div>
+      <div class="field"><label>Опишите проблему</label><textarea id="f_support_msg" style="min-height:130px;" placeholder="Что произошло, на каком экране, что ожидали увидеть…"></textarea></div>
+      <button class="btn primary" style="width:100%;" onclick="submitSupportTicket()">Отправить в поддержку</button>
+    </div>
+  `);
+}
+async function submitSupportTicket(){
+  const message = (document.getElementById('f_support_msg').value||'').trim();
+  const contactPhone = (document.getElementById('f_support_phone').value||'').trim();
+  if(!message){ showToast('Опишите проблему'); return; }
+  try{
+    await apiFetch('/support', { method:'POST', body: JSON.stringify({ message, contactPhone }) });
+    showToast('Сообщение отправлено в поддержку');
+    closeSheet();
+  }catch(e){
+    showToast(e.message || 'Не удалось отправить сообщение');
   }
 }
 function openAccountSettings(){
@@ -7178,7 +8126,7 @@ function exportExcel(){
   const carsSheet = XLSX.utils.json_to_sheet(DB.cars.map(c=>({
     'Марка': c.make, 'Модель': c.model, 'Год': c.year, 'Госномер': c.plate,
     'Статус': statusLabel[c.status]||c.status,
-    'Цена в сутки': c.rate, 'Цена за 6 часов': c.rate6h||'', 'VIN': c.vin, 'Заметки': c.notes
+    'Цена в сутки': c.rate, 'Цена за 6 часов': c.rate6h||'', 'За опоздание за час': c.overdueHourRate||'', 'VIN': c.vin, 'Заметки': c.notes
   })));
   XLSX.utils.book_append_sheet(wb, carsSheet, 'Машины');
 
