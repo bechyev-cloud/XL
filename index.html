@@ -634,6 +634,30 @@ body.win-mode .card.win-car-card{padding:14px 16px 13px;gap:8px;}
 .wct-sub{display:flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;color:var(--text-dim);letter-spacing:0.2px;margin-top:4px;}
 .wct-sub svg{width:12px;height:12px;color:var(--accent);flex-shrink:0;}
 
+
+/* ---------- клиенты: 3 вида карточек (режим для Windows) ---------- */
+.win-client-tile{flex-direction:column;align-items:stretch;padding:0 !important;overflow:hidden;gap:0 !important;cursor:pointer;}
+.wclt-banner{position:relative;height:92px;display:flex;align-items:flex-end;padding:0 16px;background:linear-gradient(135deg,var(--av-bg),transparent 85%),linear-gradient(160deg,var(--surface-2),var(--surface-3));}
+.wclt-avatar{width:62px;height:62px;border-radius:18px;display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:700;font-size:23px;color:var(--av-fg);background:var(--surface);border:3px solid var(--surface);box-shadow:0 8px 18px -10px rgba(0,0,0,.45);transform:translateY(24px);position:relative;}
+.wclt-avatar::after{content:"";position:absolute;inset:0;border-radius:15px;background:var(--av-bg);}
+.wclt-avatar span{position:relative;z-index:1;}
+.wclt-badges{position:absolute;top:10px;right:10px;display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end;}
+.wclt-info{padding:32px 16px 15px;position:relative;z-index:1;}
+.wclt-name{font-family:var(--font-display);font-weight:700;font-size:17px;color:var(--text);line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.wclt-sub{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim);margin-top:4px;font-weight:600;}
+.wclt-sub svg{width:13px;height:13px;color:var(--accent);flex-shrink:0;}
+.wclt-stars{font-size:12px;margin-top:5px;color:var(--accent);letter-spacing:1px;}
+.wclt-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:12px;}
+.wclt-stat{background:var(--surface-2);border:1px solid var(--border);border-radius:11px;padding:7px 8px;min-width:0;}
+.wclt-stat span{display:block;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-faint);}
+.wclt-stat b{display:block;font-family:var(--font-display);font-size:14.5px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);}
+.win-client-tile.has-debt{border-color:rgba(232,96,76,.35) !important;}
+.wclr-avatar{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-family:var(--font-display);font-weight:700;font-size:15px;background:var(--av-bg);color:var(--av-fg);}
+.wclr-phone{display:flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;color:var(--text-dim);flex-shrink:0;min-width:120px;}
+.wclr-phone svg{width:12px;height:12px;color:var(--accent);}
+.wclr-money{display:flex;gap:16px;margin-left:auto;flex-shrink:0;text-align:right;}
+.wclr-money div span{display:block;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-faint);}
+.wclr-money div b{font-family:var(--font-display);font-size:14px;white-space:nowrap;}
 /* ---------- car view: compact list rows (Windows "details" style) ---------- */
 body.win-mode .cars-list-wrap{grid-column:1 / -1;display:flex;flex-direction:column;gap:8px;}
 .win-car-row{flex-direction:row;align-items:center;padding:9px 14px 9px 9px;gap:12px;}
@@ -1160,6 +1184,53 @@ html.auth-pending .del-modal{z-index:460;}
 .srv-code button svg{width:15px;height:15px;}
 .srv-textbox{width:100%;min-height:190px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;line-height:1.5;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--surface-2);color:var(--text);resize:vertical;box-sizing:border-box;}
 .srv-auth-link{display:inline-flex;align-items:center;gap:6px;margin-top:10px;font-size:11.5px;color:var(--text-dim);cursor:pointer;padding:6px 10px;border-radius:100px;border:1px solid var(--border);background:var(--surface-2);}
+/* ---------- Новости с сервера (окно по центру) ---------- */
+.news-modal{position:fixed;inset:0;z-index:520;background:var(--overlay-bg);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);display:none;align-items:center;justify-content:center;padding:22px;}
+.news-modal.show{display:flex;}
+.news-card-c{width:100%;max-width:440px;max-height:86vh;max-height:86dvh;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:26px;box-shadow:0 30px 70px -20px rgba(0,0,0,.55);overflow:hidden;animation:newsPop .32s cubic-bezier(.34,1.56,.64,1);}
+@keyframes newsPop{from{opacity:0;transform:scale(.9) translateY(12px);}to{opacity:1;transform:none;}}
+.news-hero{position:relative;padding:22px 22px 16px;background:radial-gradient(circle at 100% 0%, rgba(242,169,59,.28) 0%, transparent 62%), linear-gradient(160deg,var(--surface-2),var(--surface));border-bottom:1px solid var(--border);}
+.news-kicker{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--accent);background:rgba(242,169,59,.14);padding:5px 10px;border-radius:100px;}
+.news-counter{position:absolute;top:22px;right:22px;font-size:11px;font-weight:700;color:var(--text-faint);}
+.news-h{font-family:var(--font-display);font-weight:700;font-size:24px;line-height:1.15;margin-top:12px;color:var(--text);}
+.news-date{font-size:11.5px;color:var(--text-dim);margin-top:5px;}
+.news-text{padding:16px 22px;font-size:14px;line-height:1.6;color:var(--text);white-space:pre-wrap;overflow-y:auto;word-break:break-word;}
+.news-rate{padding:14px 22px 6px;border-top:1px solid var(--border);text-align:center;}
+.news-rate-q{font-size:12.5px;color:var(--text-dim);font-weight:600;}
+.news-stars{display:flex;justify-content:center;gap:6px;margin:8px 0 2px;}
+.news-star{background:none;border:none;cursor:pointer;padding:2px;line-height:0;transition:transform .15s;}
+.news-star svg{width:38px;height:38px;fill:var(--surface-3);stroke:var(--border);stroke-width:1;transition:fill .15s, stroke .15s;}
+.news-star.on svg{fill:#ffc53d;stroke:#f2a93b;}
+.news-star:hover{transform:scale(1.15);}
+.news-star:active{transform:scale(.95);}
+.news-rate-label{font-size:12px;font-weight:700;color:var(--accent);min-height:18px;}
+.news-actions{display:flex;gap:10px;padding:10px 22px 20px;}
+.news-actions .btn{flex:1;}
+.news-thanks{font-size:13px;font-weight:700;color:var(--accent-2);padding:8px 0 2px;}
+/* ---------- Общая группа ---------- */
+.nav-btn .nav-dot{position:absolute;top:8px;right:10px;min-width:17px;height:17px;padding:0 5px;border-radius:9px;background:var(--danger);color:#fff;font-size:10px;font-weight:800;display:none;align-items:center;justify-content:center;}
+.nav-btn .nav-dot.show{display:inline-flex;}
+.gc-wrap{display:flex;flex-direction:column;height:min(70vh,640px);}
+.gc-status{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:13px;font-size:12.5px;line-height:1.45;margin-bottom:10px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-dim);}
+.gc-status.closed{background:rgba(232,96,76,.08);border-color:rgba(232,96,76,.3);color:var(--text);}
+.gc-msgs{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:6px;padding:4px 2px 10px;}
+.gc-day{align-self:center;font-size:10.5px;font-weight:700;color:var(--text-faint);background:var(--surface-2);padding:3px 10px;border-radius:100px;margin:6px 0;}
+.gc-msg{max-width:82%;align-self:flex-start;background:var(--surface-2);border:1px solid var(--border);border-radius:16px 16px 16px 5px;padding:7px 11px 6px;}
+.gc-msg.mine{align-self:flex-end;background:rgba(242,169,59,.14);border-color:rgba(242,169,59,.35);border-radius:16px 16px 5px 16px;}
+.gc-msg.admin{background:linear-gradient(155deg,rgba(62,201,167,.16),rgba(62,201,167,.06));border-color:rgba(62,201,167,.4);}
+.gc-who{font-size:11px;font-weight:800;color:var(--accent-2);display:flex;align-items:center;gap:5px;}
+.gc-msg.mine .gc-who{display:none;}
+.gc-admin-badge{font-size:9px;letter-spacing:.5px;text-transform:uppercase;background:var(--accent-2);color:#062a20;padding:1px 6px;border-radius:5px;}
+.gc-txt{font-size:13.5px;line-height:1.45;white-space:pre-wrap;word-break:break-word;color:var(--text);margin-top:1px;}
+.gc-tm{font-size:10px;color:var(--text-faint);text-align:right;margin-top:2px;}
+.gc-input{display:flex;gap:8px;align-items:flex-end;padding-top:10px;border-top:1px solid var(--border);}
+.gc-input textarea{flex:1;min-height:44px;max-height:120px;resize:none;border-radius:14px;border:1px solid var(--border);background:var(--surface-2);color:var(--text);padding:11px 13px;font-family:var(--font-body);font-size:14px;outline:none;}
+.gc-input textarea:focus{border-color:var(--accent-dim);}
+.gc-send{width:46px;height:46px;border-radius:14px;border:none;background:linear-gradient(155deg,#ffc266,var(--accent));color:#241a06;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;}
+.gc-send svg{width:20px;height:20px;}
+.gc-send:disabled{opacity:.4;cursor:default;}
+.gc-empty{margin:auto;text-align:center;color:var(--text-faint);font-size:13px;padding:30px 10px;}
+.gc-empty div{font-size:34px;margin-bottom:6px;}
 .srv-sec{justify-content:flex-start !important;}
 .srv-auth-link b{color:var(--text);font-weight:700;}
 </style>
@@ -1348,6 +1419,11 @@ html.auth-pending .del-modal{z-index:460;}
     </button>
     <div class="sidebar-bottom">
       <div class="sidebar-divider"></div>
+      <button class="nav-btn" onclick="openGroupChat()" style="position:relative;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 9h8M8 13h5"/></svg>
+        <span>Общая группа</span>
+        <span class="nav-dot gc-badge"></span>
+      </button>
       <button class="nav-btn" onclick="openTariffs()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
         <span>Тарифы</span>
@@ -2294,7 +2370,7 @@ function updateHeaderIcons(){
   const tab = currentTab;
   document.getElementById('dashCustomizeBtn').style.display = (tab==='dashboard') ? 'flex' : 'none';
   document.getElementById('carsShareBtn').style.display = (tab==='cars') ? 'flex' : 'none';
-  document.getElementById('carViewBtn').style.display = (tab==='cars' && DB.settings.windowsMode) ? 'flex' : 'none';
+  document.getElementById('carViewBtn').style.display = ((tab==='cars' || tab==='clients') && DB.settings.windowsMode) ? 'flex' : 'none';
   document.getElementById('searchToggleBtn').style.display = (tab==='cars'||tab==='clients'||tab==='contracts') ? 'flex' : 'none';
   document.getElementById('reportsCalendarBtn').style.display = (tab==='reports' && !DB.settings.windowsMode) ? 'flex' : 'none';
 }
@@ -2578,14 +2654,54 @@ async function markAllNotificationsRead(){
 }
 
 /* =================== REVENUE ENGINE =================== */
-// Prorates each contract's total across the days it covers, then buckets by day.
+// ДОХОД = ТОЛЬКО РЕАЛЬНО ПОЛУЧЕННЫЕ ДЕНЬГИ. Неоплаченная аренда, долг, штраф,
+// нарушение — это долг клиента, в доход он НЕ попадает. Как только клиент
+// платит (полностью или частично) — именно оплаченная сумма идёт в доход:
+//  • оплата при оформлении/продлении/«Платёж» на машине — ct.paidAmount/ct.paid;
+//  • погашение долга через «Добавить платёж» у клиента — записи clientLedger
+//    type:'payment' без displayOnly (displayOnly-записи — копии уже учтённых
+//    в ct.paidAmount платежей, их не считаем, иначе будет двойной счёт).
+function contractPaidPortion(ct){
+  return ct.paidAmount!=null ? (ct.paidAmount||0) : (ct.paid ? (ct.total||0) : 0);
+}
+function debtPaymentEntries(){
+  return DB.clientLedger.filter(l=>l.type==='payment' && !l.displayOnly);
+}
+// Сколько реально получено по конкретной аренде (для отчётов по машинам)
+function rentalReceivedAmount(ct){
+  const viaLedger = DB.clientLedger.filter(l=>l.type==='payment' && !l.displayOnly && l.rentalId===ct.id).reduce((s,l)=>s+(l.amount||0),0);
+  return contractPaidPortion(ct) + viaLedger;
+}
+// Общий доход от клиента — те же правила
+function clientTotalIncome(clientId){
+  const paidRentals = DB.contracts.filter(ct=>ct.clientId===clientId && ct.status!=='cancelled' && (!ct.type || ct.type==='rental'))
+    .reduce((s,ct)=>s+contractPaidPortion(ct),0);
+  const payments = debtPaymentEntries().filter(l=>l.clientId===clientId).reduce((s,l)=>s+(l.amount||0),0);
+  return paidRentals + payments;
+}
+// Доход за период: оплаченная часть аренды — по дате начала аренды,
+// погашение долгов — по дате платежа.
+function receivedIncomeInRange(inRange){
+  const rentals = DB.contracts.filter(c=>(!c.type||c.type==='rental') && c.status!=='cancelled' && inRange(c.start)).reduce((s,c)=>s+contractPaidPortion(c),0);
+  const payments = debtPaymentEntries().filter(l=>inRange(l.date)).reduce((s,l)=>s+(l.amount||0),0);
+  return rentals + payments;
+}
+// Оплаченная часть аренды распределяется по дням аренды; платежи в счёт
+// долга — в день платежа.
 function dailyRevenueMap(){
   const map = {}; // 'YYYY-MM-DD' -> amount
+  debtPaymentEntries().forEach(l=>{
+    if(!l.date) return;
+    const key = dateOnly(l.date);
+    map[key] = (map[key]||0) + (l.amount||0);
+  });
   DB.contracts.forEach(ct=>{
     if(ct.status==='cancelled') return;
     if(ct.type && ct.type!=='rental') return;
+    const paid = contractPaidPortion(ct);
+    if(paid<=0) return;
     const days = rentalDays(ct.start, ct.end);
-    const perDay = (ct.total || 0) / days;
+    const perDay = paid / days;
     let d = new Date(ct.start);
     d.setHours(0,0,0,0);
     for(let i=0;i<days;i++){
@@ -2714,7 +2830,7 @@ function setDashboardFilterCustom(field, value){
 function dashboardCardDefs(){
   const [s,e] = dashboardPeriodRange(dashboardFilter);
   const inRange = d => !s || (dateOnly(d)>=s && dateOnly(d)<=e);
-  const totalIncome = DB.contracts.filter(c=>(!c.type||c.type==='rental') && c.status!=='cancelled' && inRange(c.start)).reduce((s2,c)=>s2+(c.total||0),0);
+  const totalIncome = receivedIncomeInRange(inRange);
   const totalClientDebt = DB.clients.reduce((s2,cl)=>{ const {debt}=clientDebt(cl.id); return s2+Math.max(0,debt); },0);
   const now = new Date();
   const cutoff = new Date(now); cutoff.setDate(cutoff.getDate()-30);
@@ -2922,21 +3038,29 @@ const CAR_VIEW_MODES = [
   { id:'list', label:'Список', desc:'Компактные строки — удобно, если машин много' },
 ];
 function openCarViewMenu(){
-  const current = DB.settings.carViewMode || 'default';
+  const isClients = currentTab==='clients';
+  const MODES = isClients ? CLIENT_VIEW_MODES : CAR_VIEW_MODES;
+  const current = (isClients ? DB.settings.clientViewMode : DB.settings.carViewMode) || 'default';
   openSheet(`
     <div class="sheet-handle"></div>
     <div class="sheet-head"><div class="sheet-title">Вид карточек</div>
       <button class="icon-btn" onclick="closeSheet()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
     </div>
     <div class="sheet-body">
-      ${CAR_VIEW_MODES.map(v=>`
-        <div class="settings-item" style="cursor:pointer;" onclick="setCarViewMode('${v.id}')">
+      ${MODES.map(v=>`
+        <div class="settings-item" style="cursor:pointer;" onclick="${isClients?'setClientViewMode':'setCarViewMode'}('${v.id}')">
           <div><div class="st">${esc(v.label)}</div><div class="sd">${esc(v.desc)}</div></div>
           ${current===v.id ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="width:19px;height:19px;color:var(--accent);flex-shrink:0;"><path d="M20 6 9 17l-5-5"/></svg>` : ''}
         </div>
       `).join('')}
     </div>
   `);
+}
+async function setClientViewMode(mode){
+  DB.settings.clientViewMode = mode;
+  await persist('settings');
+  closeSheet();
+  render();
 }
 async function setCarViewMode(mode){
   DB.settings.carViewMode = mode;
@@ -3544,7 +3668,12 @@ function renderClients(){
     <div class="chips">${filters.map(([k,l])=>`<div class="chip ${clientFilter===k?'active':''}" onclick="clientFilter='${k}';render()">${l} <span class="chip-count">${counts[k]}</span></div>`).join('')}</div>
     <div class="section-title">Клиенты <span class="count">${list.length}</span></div>
     ${list.length
-      ? (DB.settings.windowsMode ? `<div class="summary-row2">${list.map(clientCard).join('')}</div>` : list.map(clientCard).join(''))
+      ? (DB.settings.windowsMode ? (()=>{
+          const vm = DB.settings.clientViewMode || 'default';
+          if(vm==='tiles') return list.map(c=>clientCard(c,'tiles')).join('');
+          if(vm==='list') return `<div class="cars-list-wrap">${list.map(c=>clientCard(c,'list')).join('')}</div>`;
+          return `<div class="summary-row2">${list.map(c=>clientCard(c,'default')).join('')}</div>`;
+        })() : list.map(c=>clientCard(c)).join(''))
       : emptyState('Пока нет клиентов','Нажмите «+», чтобы добавить клиента')}
     ${sharedMatches.length ? `
       <div class="section-title" style="margin-top:18px;"><span class="shared-client-tag">🌐 Общая база</span> <span class="count">${sharedMatches.length}</span></div>
@@ -3646,13 +3775,62 @@ function openSharedClientRatingsList(id){
     </div>
   `);
 }
-function clientCard(c){
-  const rentals = DB.contracts.filter(ct=>ct.clientId===c.id).length;
+const CLIENT_VIEW_MODES = [
+  { id:'default', label:'Текущие', desc:'Компактные карточки с суммами — 4 в ряд' },
+  { id:'tiles', label:'Крупные карточки', desc:'Большие плитки с аватаром, доходом, долгом и числом аренд' },
+  { id:'list', label:'Список', desc:'Компактные строки — удобно, если клиентов много' },
+];
+function clientAvatarColors(name){
+  let h = 0; const str = name||'?';
+  for(let i=0;i<str.length;i++) h = (h*31 + str.charCodeAt(i)) % 360;
+  return `--av-bg:hsla(${h},70%,55%,0.20);--av-fg:hsl(${h},62%,${document.documentElement.classList.contains('theme-light')?42:66}%);`;
+}
+function clientCard(c, viewMode){
+  const rentals = DB.contracts.filter(ct=>ct.clientId===c.id && (!ct.type || ct.type==='rental')).length;
   const initials = c.name.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
-  const { debtWithFines, debtWithoutFines, paymentsSum } = clientDebt(c.id);
+  const { debtWithFines, debtWithoutFines, paymentsSum, debt } = clientDebt(c.id);
   const { avg, count } = computeClientRating(c.id);
+  const phoneIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>`;
+  const badges = `${c.blacklisted ? `<span class="badge unpaid">🚫 ЧС</span>` : ''}${clientHasActiveRental(c.id) ? `<span class="badge rented">В аренде</span>` : ''}${clientHasBooking(c.id) ? `<span class="badge booked">Бронь</span>` : ''}`;
+  const income = clientTotalIncome(c.id);
+  const debtShown = Math.max(0, debt);
+  if(DB.settings.windowsMode && viewMode==='tiles'){
+    return `
+    <div class="card win-client-tile ${debtShown>0?'has-debt':''}" style="${clientAvatarColors(c.name)}" onclick="openClientDetail('${c.id}')">
+      <div class="wclt-banner">
+        <div class="wclt-avatar"><span>${esc(initials)}</span></div>
+        ${badges ? `<div class="wclt-badges">${badges}</div>` : ''}
+      </div>
+      <div class="wclt-info">
+        <div class="wclt-name">${esc(c.name)}</div>
+        <div class="wclt-sub">${phoneIcon}${esc(c.phone)||'—'}</div>
+        <div class="wclt-stars">${count ? starsStr(Math.round(avg)) : '<span style="color:var(--text-faint);letter-spacing:0;">нет оценок</span>'}</div>
+        <div class="wclt-stats">
+          <div class="wclt-stat"><span>Доход</span><b style="color:var(--accent-2);">${money(income)}</b></div>
+          <div class="wclt-stat"><span>Долг</span><b style="color:${debtShown>0?'var(--danger)':'var(--text)'};">${money(debtShown)}</b></div>
+          <div class="wclt-stat"><span>Аренд</span><b>${rentals}</b></div>
+        </div>
+      </div>
+    </div>`;
+  }
+  if(DB.settings.windowsMode && viewMode==='list'){
+    return `
+    <div class="card win-car-row" style="${clientAvatarColors(c.name)}cursor:pointer;" onclick="openClientDetail('${c.id}')">
+      <div class="wclr-avatar">${esc(initials)}</div>
+      <div class="wcr-name">${esc(c.name)}</div>
+      <div class="wcr-mid">
+        <span class="wclr-phone">${phoneIcon}${esc(c.phone)||'—'}</span>
+        ${badges}
+        ${count ? `<span class="stars-display" style="font-size:11.5px;">${starsStr(Math.round(avg))}</span>` : ''}
+      </div>
+      <div class="wclr-money">
+        <div><span>Доход</span><b style="color:var(--accent-2);">${money(income)}</b></div>
+        <div><span>Долг</span><b style="color:${debtShown>0?'var(--danger)':'var(--text)'};">${money(debtShown)}</b></div>
+        <div><span>Аренд</span><b>${rentals}</b></div>
+      </div>
+    </div>`;
+  }
   if(DB.settings.windowsMode){
-    const totalSpent = DB.contracts.filter(ct=>ct.clientId===c.id && ct.status!=='cancelled').reduce((s,ct)=>s+(ct.total||0),0);
     return `
     <div class="summary-card2" style="cursor:pointer;" onclick="openClientDetail('${c.id}')">
       <div style="display:flex;align-items:center;gap:10px;min-width:0;position:relative;z-index:1;">
@@ -3662,16 +3840,12 @@ function clientCard(c){
           <div style="font-size:11px;color:var(--text-dim);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(c.phone)||'—'}</div>
         </div>
       </div>
-      ${(c.blacklisted || clientHasActiveRental(c.id) || clientHasBooking(c.id)) ? `<div style="display:flex;gap:5px;flex-wrap:wrap;position:relative;z-index:1;">
-        ${c.blacklisted ? `<span class="badge unpaid">🚫 ЧС</span>` : ''}
-        ${clientHasActiveRental(c.id) ? `<span class="badge rented">В аренде</span>` : ''}
-        ${clientHasBooking(c.id) ? `<span class="badge booked">Бронь</span>` : ''}
-      </div>` : ''}
+      ${badges ? `<div style="display:flex;gap:5px;flex-wrap:wrap;position:relative;z-index:1;">${badges}</div>` : ''}
       <div style="position:relative;z-index:1;">
-        <div class="detail-row" style="padding:3px 0;font-size:12px;"><span class="k">Сумма</span><span class="v">${money(totalSpent)}</span></div>
+        <div class="detail-row" style="padding:3px 0;font-size:12px;"><span class="k">Доход</span><span class="v" style="color:var(--accent-2);">${money(income)}</span></div>
         <div class="detail-row" style="padding:3px 0;font-size:12px;"><span class="k">Долг + штрафы</span><span class="v" style="color:${debtWithFines>0?'var(--danger)':'var(--text)'};">${money(Math.max(0,debtWithFines))}</span></div>
         <div class="detail-row" style="padding:3px 0;font-size:12px;"><span class="k">Долг без штрафов</span><span class="v" style="color:${debtWithoutFines>0?'var(--danger)':'var(--text)'};">${money(Math.max(0,debtWithoutFines))}</span></div>
-        <div class="detail-row" style="padding:3px 0;font-size:12px;"><span class="k">Оплата</span><span class="v" style="color:var(--accent-2);">${money(paymentsSum)}</span></div>
+        <div class="detail-row" style="padding:3px 0;font-size:12px;"><span class="k">Погашено долга</span><span class="v" style="color:var(--accent-2);">${money(paymentsSum)}</span></div>
       </div>
     </div>`;
   }
@@ -3836,12 +4010,7 @@ function openClientDetail(id){
   // платежи из журнала (clientLedger), которыми гасится долг за аренду,
   // штрафы, нарушения и старые долги. Долг за ещё не оплаченные договоры сюда
   // не попадает — появляется тут только после того, как клиент фактически заплатил.
-  const paidRentalsTotal = rentals.reduce((s,ct)=>{
-    if(ct.status==='cancelled') return s;
-    const paidAmt = ct.paidAmount!=null ? ct.paidAmount : (ct.paid ? (ct.total||0) : 0);
-    return s + paidAmt;
-  }, 0);
-  const totalIncome = paidRentalsTotal + paymentsSum;
+  const totalIncome = clientTotalIncome(id);
   // Раунд 18: пока у клиента есть ещё АКТИВНАЯ аренда (машину ещё не вернули),
   // карточка «доход» на этом экране должна показывать не общий накопленный
   // доход по всей истории клиента, а именно оплату за эту текущую аренду —
@@ -5460,7 +5629,7 @@ function renderIncomeReport(){
   const rentalContracts = DB.contracts.filter(c=>(!c.type || c.type==='rental') && c.status!=='cancelled' && inRange(c.start));
   const list = DB.cars.map(car=>{
     const cs = rentalContracts.filter(c=>c.carId===car.id);
-    return { car, count: cs.length, income: cs.reduce((s2,c)=>s2+(c.total||0),0) };
+    return { car, count: cs.length, income: cs.reduce((s2,c)=>s2+rentalReceivedAmount(c),0) };
   }).sort((a,b)=>b.income-a.income);
   return `
     <div class="section-title" style="margin-top:14px;">Доход по машинам <span class="count">${list.length}</span></div>
@@ -5805,7 +5974,7 @@ async function deleteQuickRepair(id, carId){
 function openCarReportDetail(carId){
   const car = DB.cars.find(c=>c.id===carId);
   const all = DB.contracts.filter(ct=>ct.carId===carId && ct.status!=='cancelled').sort((a,b)=>new Date(b.start)-new Date(a.start));
-  const revenue = all.filter(ct=>!ct.type || ct.type==='rental').reduce((s,ct)=>s+(ct.total||0),0);
+  const revenue = all.filter(ct=>(!ct.type || ct.type==='rental') && ct.status!=='cancelled').reduce((s,ct)=>s+rentalReceivedAmount(ct),0);
   const expense = all.filter(ct=>ct.type==='repair' || ct.type==='oil').reduce((s,ct)=>s+(ct.total||0),0);
   const oilTotal = DB.oilChanges.filter(o=>o.carId===carId).reduce((s,o)=>s+(o.amount||0),0);
   const { mileage, lastMil, lastDate, sinceChange, remaining, dueSoon } = car ? oilStatus(car) : {};
@@ -6831,6 +7000,228 @@ function srvUbuntuGuide(){
 }
 srvUpdateAuthChip();
 
+/* =================== НОВОСТИ С СЕРВЕРА + ОБЩАЯ ГРУППА ===================
+   Новости публикует администратор в /admin → «Новости». Каждая новая
+   новость один раз показывается окном по центру экрана; пользователь может
+   оценить её от 1 до 5 звёзд (оценки видит администратор). Все прошлые
+   новости — Настройки → Новости.
+   Общая группа — чат всех пользователей XCAR (кнопка «Общая группа» над
+   «Тарифы» в режиме для Windows, на телефоне — в Настройках).
+   Администратор может закрыть группу (пишет только он) и запретить писать
+   отдельным пользователям. */
+const NEWS_STAR_SVG = '<svg viewBox="0 0 24 24"><path d="M12 2.8l2.83 5.74 6.33.92-4.58 4.46 1.08 6.3L12 17.25l-5.66 2.97 1.08-6.3L2.84 9.46l6.33-.92z"/></svg>';
+const NEWS_RATE_LABELS = ['', 'Плохо', 'Так себе', 'Нормально', 'Хорошо', 'Отлично!'];
+let __newsQueue = [], __newsIdx = 0, __newsCheckedAt = 0, __newsShowing = false;
+
+function newsModalEl(){
+  let el = document.getElementById('newsModal');
+  if(!el){ el = document.createElement('div'); el.id = 'newsModal'; el.className = 'news-modal'; document.body.appendChild(el); }
+  return el;
+}
+function newsCanShowNow(){
+  if(isLoggedOut()) return false;
+  if(document.documentElement.classList.contains('auth-pending')) return false;
+  const splash = document.getElementById('splash');
+  if(splash && !splash.classList.contains('hide')) return false;
+  return true;
+}
+async function checkServerNews(force){
+  if(isLoggedOut() || __newsShowing) return;
+  if(!force && Date.now() - __newsCheckedAt < 5*60*1000) return;
+  __newsCheckedAt = Date.now();
+  try{
+    const r = await apiFetch('/community/news', { method:'GET', __noFailover:true });
+    const unseen = (r.news||[]).filter(n=>!n.seen).reverse(); // от старых к новым
+    if(!unseen.length) return;
+    const tryShow = ()=>{ if(newsCanShowNow()) showNewsQueue(unseen); else setTimeout(tryShow, 1500); };
+    tryShow();
+  }catch(e){ /* сервер без поддержки новостей или нет связи — молча */ }
+}
+function showNewsQueue(list, startIdx){
+  __newsQueue = list; __newsIdx = startIdx || 0; __newsShowing = true;
+  renderNewsModal();
+}
+function renderNewsModal(picked){
+  const n = __newsQueue[__newsIdx]; if(!n){ closeNewsModal(); return; }
+  const cur = picked || n.myRating || 0;
+  const el = newsModalEl();
+  const dt = n.createdAt ? new Date(n.createdAt).toLocaleString('ru-RU',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}) : '';
+  el.innerHTML = `
+    <div class="news-card-c" role="dialog" aria-modal="true">
+      <div class="news-hero">
+        <span class="news-kicker">📢 Новость XCAR</span>
+        ${__newsQueue.length>1 ? `<span class="news-counter">${__newsIdx+1} / ${__newsQueue.length}</span>` : ''}
+        <div class="news-h">${esc(n.title)}</div>
+        <div class="news-date">${esc(dt)}</div>
+      </div>
+      <div class="news-text">${esc(n.body)}</div>
+      <div class="news-rate">
+        ${n.myRating && !picked ? `<div class="news-rate-q">Ваша оценка — можно изменить</div>` : `<div class="news-rate-q">Оцените эту новость</div>`}
+        <div class="news-stars" onmouseleave="newsHoverStars(0)">
+          ${[1,2,3,4,5].map(i=>`<button class="news-star ${i<=cur?'on':''}" data-i="${i}" onmouseenter="newsHoverStars(${i})" onclick="rateServerNews(${i})" title="${NEWS_RATE_LABELS[i]}">${NEWS_STAR_SVG}</button>`).join('')}
+        </div>
+        <div class="news-rate-label" id="newsRateLabel">${picked ? '<span class="news-thanks">Спасибо за оценку! ✨</span>' : (cur ? NEWS_RATE_LABELS[cur] : '')}</div>
+      </div>
+      <div class="news-actions">
+        <button class="btn ${picked?'primary':'ghost'}" onclick="nextServerNews()">${__newsIdx < __newsQueue.length-1 ? 'Следующая →' : (picked ? 'Готово' : 'Закрыть')}</button>
+      </div>
+    </div>`;
+  el.classList.add('show');
+  el.dataset.current = String(cur);
+}
+function newsHoverStars(i){
+  const el = document.getElementById('newsModal'); if(!el) return;
+  const base = Number(el.dataset.current||0);
+  const v = i || base;
+  el.querySelectorAll('.news-star').forEach(b=>b.classList.toggle('on', Number(b.dataset.i)<=v));
+  const lbl = document.getElementById('newsRateLabel');
+  if(lbl && i) lbl.textContent = NEWS_RATE_LABELS[i];
+  else if(lbl && !lbl.querySelector('.news-thanks')) lbl.textContent = base ? NEWS_RATE_LABELS[base] : '';
+}
+async function rateServerNews(stars){
+  const n = __newsQueue[__newsIdx]; if(!n) return;
+  n.myRating = stars; n.seen = true;
+  renderNewsModal(stars);
+  if(typeof feedback==='function') try{ feedback('success'); }catch(e){}
+  try{ await apiFetch('/community/news/'+n.id+'/rate', { method:'POST', body: JSON.stringify({ stars }), __noFailover:true }); }
+  catch(e){ showToast(e.message || 'Не удалось отправить оценку'); }
+}
+async function nextServerNews(){
+  const n = __newsQueue[__newsIdx];
+  if(n && !n.seen){ n.seen = true; apiFetch('/community/news/'+n.id+'/seen', { method:'POST', __noFailover:true }).catch(()=>{}); }
+  __newsIdx++;
+  if(__newsIdx >= __newsQueue.length) closeNewsModal(); else renderNewsModal();
+}
+function closeNewsModal(){
+  const el = document.getElementById('newsModal'); if(el) el.classList.remove('show');
+  __newsShowing = false;
+}
+async function openNewsHistory(){
+  if(isLoggedOut()){ showToast('Войдите в аккаунт, чтобы видеть новости'); return; }
+  openSheet(`${subHead('Новости')}<div class="sheet-body"><div style="font-size:13px;color:var(--text-dim);padding:20px 0;text-align:center;">Загрузка…</div></div>`);
+  try{
+    const r = await apiFetch('/community/news', { method:'GET' });
+    const list = r.news || [];
+    openSheet(`${subHead('Новости')}<div class="sheet-body">
+      ${list.length ? list.map((n,i)=>`
+        <div class="settings-item" style="cursor:pointer;align-items:flex-start;" onclick="closeSheet();showNewsQueue(__newsHistory, ${i})">
+          <div style="min-width:0;"><div class="st">${n.seen?'':'<span style="color:var(--accent);">● </span>'}${esc(n.title)}</div>
+            <div class="sd" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${esc(n.body)}</div>
+            <div class="sd" style="margin-top:3px;">${new Date(n.createdAt).toLocaleDateString('ru-RU')} · ${n.myRating ? '<span style="color:#f2a93b;">'+'★'.repeat(n.myRating)+'</span> ваша оценка' : 'не оценено'}</div></div>
+        </div>`).join('') : `<div style="text-align:center;color:var(--text-faint);padding:30px 0;font-size:13px;">Новостей пока нет</div>`}
+    </div>`);
+    window.__newsHistory = list;
+  }catch(e){ showToast(e.message || 'Не удалось загрузить новости'); }
+}
+
+/* ---- Общая группа ---- */
+const GC_SEEN_KEY = 'xcar_group_last_seen';
+let __gc = { messages:[], closed:false, banned:false, lastId:null, timer:null, sending:false };
+function gcLastSeen(){ try{ return localStorage.getItem(GC_SEEN_KEY)||''; }catch(e){ return ''; } }
+function gcSetLastSeen(id){ try{ if(id) localStorage.setItem(GC_SEEN_KEY, id); }catch(e){} }
+function gcSetBadge(n){
+  document.querySelectorAll('.gc-badge').forEach(b=>{ b.textContent = n>99?'99+':String(n); b.classList.toggle('show', n>0); });
+}
+async function checkGroupUnread(){
+  if(isLoggedOut() || document.getElementById('gcMsgs')) return;
+  try{
+    const r = await apiFetch('/community/chat', { method:'GET', __noFailover:true });
+    const seen = gcLastSeen();
+    const msgs = (r.messages||[]).filter(m=>!m.mine);
+    let unread = 0;
+    if(!seen) unread = 0; // первый запуск — не пугаем старыми сообщениями
+    else { const i = (r.messages||[]).findIndex(m=>m.id===seen); unread = i<0 ? Math.min(msgs.length, 20) : r.messages.slice(i+1).filter(m=>!m.mine).length; }
+    if(!seen && r.lastId) gcSetLastSeen(r.lastId);
+    gcSetBadge(unread);
+  }catch(e){}
+}
+function gcTime(iso){ try{ return new Date(iso).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}); }catch(e){ return ''; } }
+function gcDay(iso){
+  const d = new Date(iso), t = new Date(); const y = new Date(); y.setDate(t.getDate()-1);
+  if(d.toDateString()===t.toDateString()) return 'Сегодня';
+  if(d.toDateString()===y.toDateString()) return 'Вчера';
+  return d.toLocaleDateString('ru-RU',{day:'numeric',month:'long'});
+}
+function gcRenderMessages(scroll){
+  const box = document.getElementById('gcMsgs'); if(!box) return;
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  let lastDay = '';
+  box.innerHTML = __gc.messages.length ? __gc.messages.map(m=>{
+    const day = gcDay(m.createdAt); const sep = day!==lastDay ? `<div class="gc-day">${day}</div>` : ''; lastDay = day;
+    return `${sep}<div class="gc-msg ${m.mine?'mine':''} ${m.fromAdmin?'admin':''}">
+      <div class="gc-who">${esc(m.name)}${m.fromAdmin?'<span class="gc-admin-badge">админ</span>':''}</div>
+      <div class="gc-txt">${esc(m.text)}</div>
+      <div class="gc-tm">${gcTime(m.createdAt)}</div>
+    </div>`;
+  }).join('') : `<div class="gc-empty"><div>👋</div>Здесь общаются все пользователи XCAR.<br>Напишите первым!</div>`;
+  if(scroll || nearBottom) box.scrollTop = box.scrollHeight;
+  const st = document.getElementById('gcStatus');
+  const canWrite = !__gc.closed && !__gc.banned;
+  if(st){
+    st.className = 'gc-status' + (canWrite ? '' : ' closed');
+    st.innerHTML = __gc.banned ? '🚫 Администратор запретил вам писать в группу. Читать сообщения можно.'
+      : __gc.closed ? '🔒 Администратор закрыл группу — сейчас писать может только он.'
+      : '💬 Общая группа всех пользователей XCAR. Будьте вежливы — администратор может ограничить участников.';
+  }
+  const ta = document.getElementById('gcText'), btn = document.getElementById('gcSendBtn');
+  if(ta){ ta.disabled = !canWrite; ta.placeholder = canWrite ? 'Сообщение…' : 'Писать сейчас нельзя'; }
+  if(btn) btn.disabled = !canWrite;
+}
+async function gcPoll(first){
+  if(!document.getElementById('gcMsgs')){ clearInterval(__gc.timer); __gc.timer = null; return; }
+  try{
+    const after = !first && __gc.lastId ? '?after='+encodeURIComponent(__gc.lastId) : '';
+    const r = await apiFetch('/community/chat'+after, { method:'GET', __noFailover:true });
+    if(first) __gc.messages = r.messages||[];
+    else if(r.messages && r.messages.length) __gc.messages = __gc.messages.concat(r.messages.filter(m=>!__gc.messages.some(x=>x.id===m.id)));
+    const changed = first || (r.messages&&r.messages.length) || r.closed!==__gc.closed || r.banned!==__gc.banned;
+    __gc.closed = r.closed; __gc.banned = r.banned; __gc.lastId = r.lastId;
+    if(r.lastId) gcSetLastSeen(r.lastId);
+    gcSetBadge(0);
+    if(changed) gcRenderMessages(first);
+  }catch(e){
+    if(first){ const box = document.getElementById('gcMsgs'); if(box) box.innerHTML = `<div class="gc-empty"><div>⚠️</div>${esc(e.message||'Нет связи с сервером')}</div>`; }
+  }
+}
+function openGroupChat(){
+  if(isLoggedOut()){ showToast('Войдите в аккаунт, чтобы писать в общую группу'); return; }
+  openSheet(`
+    <div class="sheet-handle"></div>
+    <div class="sheet-head"><div class="sheet-title">💬 Общая группа</div>
+      <div class="sheet-head-actions">${iconBtn('close','closeSheet()','Закрыть')}</div>
+    </div>
+    <div class="sheet-body">
+      <div class="gc-wrap">
+        <div class="gc-status" id="gcStatus">Загрузка…</div>
+        <div class="gc-msgs" id="gcMsgs"><div class="gc-empty">Загрузка сообщений…</div></div>
+        <div class="gc-input">
+          <textarea id="gcText" rows="1" placeholder="Сообщение…" maxlength="2000" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendGroupMessage();}" oninput="this.style.height='auto';this.style.height=Math.min(120,this.scrollHeight)+'px'"></textarea>
+          <button class="gc-send" id="gcSendBtn" onclick="sendGroupMessage()" title="Отправить"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg></button>
+        </div>
+      </div>
+    </div>`);
+  __gc.messages = []; __gc.lastId = null;
+  gcPoll(true);
+  clearInterval(__gc.timer);
+  __gc.timer = setInterval(()=>gcPoll(false), 4000);
+}
+async function sendGroupMessage(){
+  const ta = document.getElementById('gcText'); if(!ta || __gc.sending) return;
+  const text = ta.value.trim(); if(!text) return;
+  __gc.sending = true;
+  try{
+    await apiFetch('/community/chat', { method:'POST', body: JSON.stringify({ text }), __noFailover:true });
+    ta.value = ''; ta.style.height = '';
+    await gcPoll(false);
+    const box = document.getElementById('gcMsgs'); if(box) box.scrollTop = box.scrollHeight;
+  }catch(e){ showToast(e.message || 'Не удалось отправить'); gcPoll(false); }
+  __gc.sending = false;
+}
+function communityTick(){
+  checkServerNews(false);
+  checkGroupUnread();
+}
+
 function openSettings(){
   openSheet(`
     <div class="sheet-handle"></div>
@@ -6844,6 +7235,8 @@ function openSettings(){
     <div class="sheet-body">
       ${settingsMenuItem('👤','Аккаунт', authGetUser() ? (authGetUser().companyName || authGetUser().fullName || 'Мой аккаунт') : 'Не авторизован', `openAccountSettings()`)}
       ${settingsMenuItem('💎','Тариф', SUBSCRIPTION ? (SUBSCRIPTION.planName||'—')+' · '+(SUBSCRIPTION.status==='expired'?'истёк':SUBSCRIPTION.daysLeft+' дн.') : 'Подписка и лимит машин', `openTariffs()`)}
+      ${settingsMenuItem('💬','Общая группа', 'Чат всех пользователей XCAR', `openGroupChat()`)}
+      ${settingsMenuItem('📢','Новости', 'Новости от администратора и ваши оценки', `openNewsHistory()`)}
       <div class="settings-item">
         <div><div class="st">🖥️ Режим для Windows</div><div class="sd">Широкий экран и меню слева — для Chrome на компьютере. На планшете включается сам при повороте в горизонтальную ориентацию, выключать вручную не обязательно</div></div>
         <label class="switch"><input type="checkbox" id="f_winmode" ${DB.settings.windowsMode?'checked':''} onchange="toggleWindowsMode()"><span class="slider"></span></label>
@@ -9644,6 +10037,7 @@ async function startApp(){
   checkOneHourReminders();
   checkEmailBackup();
   checkOwnerAlarms();
+  setTimeout(()=>{ checkServerNews(true); checkGroupUnread(); }, 2500);
   // keep return-timers fresh and check WhatsApp reminders without disturbing an open form
   setInterval(()=>{
     const overlayOpen = document.getElementById('overlay').classList.contains('show');
@@ -9652,6 +10046,7 @@ async function startApp(){
     checkOwnerAlarms();
     updateNotifBadge();
     refreshSubscription();
+    communityTick();
     if(!overlayOpen && (currentTab==='dashboard' || currentTab==='cars' || currentTab==='contracts')) render();
   }, 60000);
   if('serviceWorker' in navigator){
