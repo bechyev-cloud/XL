@@ -10,7 +10,11 @@
      window.XCAR_API_BASE = 'https://xcar-api.onrender.com/api';
    Без этого регистрация, вход и синхронизация данных между устройствами
    работать не будут — приложение покажет ошибку на экране входа. */
-window.XCAR_DEFAULT_API_BASE = 'https://xcar-ser.onrender.com/api';
+window.XCAR_DEFAULT_API_BASE = 'https://xs-2.onrender.com/api';
+// Прежний адрес по умолчанию: на устройствах, где он был основным, он
+// автоматически меняется на новый (и остаётся в списке как резервный), чтобы
+// приложение и панель XCAR CONTROL работали с одним и тем же сервером.
+window.XCAR_OLD_DEFAULT_API_BASE = 'https://xcar-ser.onrender.com/api';
 /* Сервер можно сменить прямо в приложении: Настройки → Серверы (в самом низу).
    Список серверов и выбранный активный хранятся на ЭТОМ устройстве
    (localStorage, ключ xcar_servers_v1). Здесь — синхронно, до загрузки
@@ -24,6 +28,16 @@ window.XCAR_DEFAULT_API_BASE = 'https://xcar-ser.onrender.com/api';
   if(window.XCAR_LAN_PAGE) base = location.origin + '/api';
   try{
     var cfg = JSON.parse(localStorage.getItem('xcar_servers_v1') || 'null');
+    if(cfg && cfg.servers && cfg.servers.length && !cfg.migratedXs2){
+      var old = window.XCAR_OLD_DEFAULT_API_BASE, nw = window.XCAR_DEFAULT_API_BASE, hasNew = false, reserve = null;
+      for(var j=0;j<cfg.servers.length;j++){ if(cfg.servers[j].url===nw) hasNew = true; if(cfg.servers[j].id==='reserve') reserve = cfg.servers[j]; }
+      for(var j2=0;j2<cfg.servers.length;j2++){
+        var s2 = cfg.servers[j2];
+        if(s2.id==='main' && s2.url===old && !hasNew){ s2.url = nw; if(reserve && !reserve.url){ reserve.url = old; reserve.name = 'Старый сервер'; } }
+      }
+      cfg.migratedXs2 = true;
+      try{ localStorage.setItem('xcar_servers_v1', JSON.stringify(cfg)); }catch(e){}
+    }
     if(cfg && cfg.servers && cfg.servers.length){
       for(var i=0;i<cfg.servers.length;i++){
         var sv = cfg.servers[i];
@@ -1231,6 +1245,19 @@ html.auth-pending .del-modal{z-index:460;}
 .gc-send:disabled{opacity:.4;cursor:default;}
 .gc-empty{margin:auto;text-align:center;color:var(--text-faint);font-size:13px;padding:30px 10px;}
 .gc-empty div{font-size:34px;margin-bottom:6px;}
+/* ---------- Сообщения от администрации XCAR ---------- */
+.dm-img{display:block;max-width:240px;max-height:220px;border-radius:12px;margin-top:6px;object-fit:cover;}
+.dm-file{display:flex;align-items:center;gap:6px;margin-top:6px;padding:8px 10px;border-radius:10px;background:var(--surface-3);color:var(--text);text-decoration:none;font-size:12.5px;font-weight:600;}
+.dm-file span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dm-file small{color:var(--text-faint);font-weight:500;}
+.dm-prio{font-size:11px;font-weight:800;color:var(--accent);margin:2px 0;}
+.dm-prio.crit{color:var(--danger);}
+.dm-pin{font-size:12px;padding:8px 11px;border-radius:11px;background:rgba(242,169,59,.1);border:1px solid rgba(242,169,59,.3);margin-bottom:8px;color:var(--text);}
+.dm-files{display:flex;flex-wrap:wrap;gap:6px;}
+.dm-files:not(:empty){padding-top:8px;}
+.dm-chip{font-size:11.5px;background:var(--surface-2);border:1px solid var(--border);border-radius:100px;padding:4px 10px;}
+.dm-chip a{cursor:pointer;color:var(--danger);margin-left:4px;}
+.dm-attach{background:var(--surface-2) !important;color:var(--text-dim) !important;border:1px solid var(--border) !important;cursor:pointer;}
 .srv-sec{justify-content:flex-start !important;}
 .srv-auth-link b{color:var(--text);font-weight:700;}
 </style>
@@ -1419,6 +1446,11 @@ html.auth-pending .del-modal{z-index:460;}
     </button>
     <div class="sidebar-bottom">
       <div class="sidebar-divider"></div>
+      <button class="nav-btn" onclick="openAdminMessages()" style="position:relative;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+        <span>Сообщения XCAR</span>
+        <span class="nav-dot dm-badge"></span>
+      </button>
       <button class="nav-btn" onclick="openGroupChat()" style="position:relative;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 9h8M8 13h5"/></svg>
         <span>Общая группа</span>
@@ -1880,10 +1912,82 @@ function showBlockedGate(message){
   `);
 }
 
+/* ---- Совместная работа приложения, XCAR CONTROL и других устройств ----
+   У каждого раздела на сервере есть номер ревизии (_rev). Приложение помнит,
+   от какой ревизии оно делало правку, и «отпечатки» записей на тот момент.
+   Отправляя раздел, оно сообщает, что изменило само — если в это время раздел
+   поменял администратор в XCAR CONTROL или другое устройство, сервер сливает
+   изменения, а не затирает их. Раз в 30 секунд (и при возврате в приложение)
+   проверяется, не изменились ли данные на сервере, — и они подтягиваются. */
+const SYNC_BASE_KEY = 'xcar_sync_base';
+let __syncBase = null;
+let __syncPending = {};
+let __syncGen = {};
+function syncBaseAll(){ if(!__syncBase){ try{ __syncBase = JSON.parse(localStorage.getItem(SYNC_BASE_KEY)||'{}')||{}; }catch(e){ __syncBase = {}; } } return __syncBase; }
+function syncBaseSave(){ try{ localStorage.setItem(SYNC_BASE_KEY, JSON.stringify(__syncBase||{})); }catch(e){} }
+function syncHash(v){ const str = JSON.stringify(v===undefined?null:v); let h = 5381; for(let i=0;i<str.length;i++){ h = ((h<<5)+h + str.charCodeAt(i)) | 0; } return (h>>>0).toString(36) + ':' + str.length; }
+function syncCleanValue(key, value){
+  if(key==='settings' && value && typeof value==='object'){ value = Object.assign({}, value); delete value.windowsMode; }
+  return value;
+}
+function syncSnapshot(key, value, rev){
+  const b = syncBaseAll(); value = syncCleanValue(key, value);
+  const snap = { rev: rev||0 };
+  if(Array.isArray(value)){ snap.ids = {}; value.forEach(x=>{ if(x && x.id!==undefined) snap.ids[x.id] = syncHash(x); }); }
+  else if(value && typeof value==='object'){ snap.keys = {}; Object.keys(value).forEach(k=>{ snap.keys[k] = syncHash(value[k]); }); }
+  b[key] = snap; syncBaseSave();
+}
+function syncDiff(key, value){
+  const snap = syncBaseAll()[key]; if(!snap) return {};
+  const out = { baseRev: snap.rev||0 };
+  if(Array.isArray(value) && snap.ids){
+    out.knownIds = Object.keys(snap.ids);
+    out.changedIds = value.filter(x=>x && x.id!==undefined && snap.ids[x.id]!==syncHash(x)).map(x=>String(x.id));
+    // id в снимке хранятся строками — приводим к исходному типу для сервера
+    const typed = {}; value.forEach(x=>{ if(x && x.id!==undefined) typed[String(x.id)] = x.id; });
+    out.changedIds = out.changedIds.map(id=>typed[id]!==undefined?typed[id]:id);
+    out.knownIds = out.knownIds.map(id=> typed[id]!==undefined ? typed[id] : (/^\d+$/.test(id) ? Number(id) : id));
+  } else if(value && typeof value==='object' && snap.keys){
+    out.knownKeys = Object.keys(snap.keys);
+    const cur = Object.keys(value);
+    out.changedKeys = cur.filter(k=>snap.keys[k]!==syncHash(value[k])).concat(out.knownKeys.filter(k=>!(k in value)));
+  }
+  return out;
+}
+// Применить пришедшие с сервера данные раздела (без повторной отправки на сервер)
+function syncApplyFromServer(key, val){
+  if(key==='settings' && val && typeof val==='object') val = Object.assign({}, val, { windowsMode: getLocalWindowsMode() });
+  try{ localStorage.setItem(LS_PREFIX+key, JSON.stringify(val)); }catch(e){}
+}
+let __syncDeferred = false;
+async function syncCheckRemote(force){
+  if(isLoggedOut() || document.hidden) return;
+  if(Object.values(__syncPending).some(Boolean)) return; // сначала отправим свои изменения
+  const overlayOpen = document.getElementById('overlay').classList.contains('show');
+  try{
+    const r = await apiFetch('/data/rev', { method:'GET', __noFailover:true });
+    const base = syncBaseAll();
+    const changed = SYNC_KEYS.filter(k=> (r.rev && r.rev[k]||0) > ((base[k] && base[k].rev) || 0));
+    if(!changed.length && !force) return;
+    if(changed.length && overlayOpen && !force){ __syncDeferred = true; return; } // не мешаем открытой форме
+    const data = await apiFetch('/data', { method:'GET', __noFailover:true });
+    if(Object.values(__syncPending).some(Boolean)) return;
+    const revs = data._rev || {};
+    changed.forEach(k=>{ if(data[k]!==undefined && data[k]!==null){ syncApplyFromServer(k, data[k]); syncSnapshot(k, data[k], revs[k]||0); } });
+    if(changed.length){ await loadAll(); render(); __syncDeferred = false; }
+  }catch(e){ /* нет связи — попробуем позже */ }
+}
+setInterval(()=>syncCheckRemote(false), 30000);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) syncCheckRemote(false); });
+// форма закрылась — применяем отложенные изменения с сервера
+setInterval(()=>{ if(__syncDeferred && !document.getElementById('overlay').classList.contains('show')) syncCheckRemote(false); }, 3000);
+
 function queueServerSync(key){
   if(!SYNC_KEYS.includes(key)) return;
   if(!authGetToken()) return;
   clearTimeout(__syncTimers[key]);
+  __syncPending[key] = true;
+  __syncGen[key] = (__syncGen[key]||0) + 1;
   __syncTimers[key] = setTimeout(()=>pushKeyToServer(key), 900);
 }
 async function pushKeyToServer(key){
@@ -1895,21 +1999,39 @@ async function pushKeyToServer(key){
       value = Object.assign({}, value);
       delete value.windowsMode;
     }
-    await apiFetch('/data/'+key, { method:'PUT', body: JSON.stringify({ value }) });
+    const gen = __syncGen[key]||0;
+    const diff = syncDiff(key, value);
+    const r = await apiFetch('/data/'+key, { method:'PUT', body: JSON.stringify(Object.assign({ value }, diff)) });
     __syncFailCount[key] = 0;
+    const newerLocalEdit = (__syncGen[key]||0) !== gen; // пока шёл запрос, пользователь снова что-то изменил
+    if(r && r.merged && r.value!==undefined){
+      // пока мы правили, раздел изменили в XCAR CONTROL или на другом устройстве —
+      // сервер объединил изменения; берём итог и перерисовываем экран.
+      // Если уже есть новая локальная правка — снимок не трогаем: следующая
+      // отправка снова пройдёт слияние на сервере и ничего не потеряется.
+      if(!newerLocalEdit){
+        syncApplyFromServer(key, r.value); syncSnapshot(key, r.value, r.rev);
+        await loadAll(); if(!document.getElementById('overlay').classList.contains('show')) render(); else __syncDeferred = true;
+      }
+    } else {
+      syncSnapshot(key, value, r && r.rev);
+    }
+    if(!newerLocalEdit) __syncPending[key] = false;
   }catch(e){
     __syncFailCount[key] = (__syncFailCount[key]||0)+1;
     console.warn('Синхронизация не удалась для', key, e.message);
     if(__syncFailCount[key] === 1){
       clearTimeout(__syncTimers[key]);
       __syncTimers[key] = setTimeout(()=>pushKeyToServer(key), 8000);
-    }
+    } else { __syncPending[key] = false; }
   }
 }
 
 async function pullServerData(){
   const data = await apiFetch('/data', { method:'GET' });
   if(data && typeof data === 'object'){
+    const revs = data._rev || {};
+    SYNC_KEYS.forEach(k=>{ if(data[k] !== undefined && data[k] !== null) syncSnapshot(k, data[k], revs[k]||0); });
     SYNC_KEYS.forEach(k=>{
       if(data[k] !== undefined && data[k] !== null){
         let val = data[k];
@@ -6408,11 +6530,12 @@ function srvDefaultConfig(){
   return {
     activeId: lan ? 'home' : 'main',
     autoFailover: true,
+    migratedXs2: true,
     servers: [
       { id:'home',    name:'Домашний Ubuntu',  role:'home',    url: lan, enabled:true },
       { id:'main',    name:'Основной сервер',  role:'main',    url: window.XCAR_DEFAULT_API_BASE || '', enabled:true },
       { id:'reserve', name:'Резервный сервер', role:'reserve', url:'', enabled:true }
-    ].sort((a,b)=> lan ? 0 : (a.id==='home') - (b.id==='home'))
+    ].map(x=>x).sort((a,b)=> lan ? 0 : (a.id==='home') - (b.id==='home'))
   };
 }
 function srvIsPrivateUrl(url){ try{ const h = new URL(url).hostname; return /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h); }catch(e){ return false; } }
@@ -7220,7 +7343,123 @@ async function sendGroupMessage(){
 function communityTick(){
   checkServerNews(false);
   checkGroupUnread();
+  checkDmUnread();
 }
+/* =================== СООБЩЕНИЯ ОТ АДМИНИСТРАЦИИ XCAR ===================
+   Личный диалог пользователя с администрацией (XCAR CONTROL → Сообщения):
+   ответы на обращения в тех. поддержку, личные сообщения и рассылки.
+   API: GET/POST /api/community/dm, GET /api/community/dm/unread,
+   вложения — /api/community/attachments/:id. */
+let __dm = { messages:[], timer:null, sending:false, files:[], lastUnread:0, notifiedIds:{} };
+function dmSetBadge(n){ document.querySelectorAll('.dm-badge').forEach(b=>{ b.textContent = n>99?'99+':String(n); b.classList.toggle('show', n>0); }); }
+function dmAttUrl(a){ return apiBase() + '/community/attachments/' + encodeURIComponent(a.id) + '?t=' + encodeURIComponent(authGetToken()||''); }
+function dmAttHtml(a){
+  const url = dmAttUrl(a);
+  if(a.kind==='image' || /^image\//.test(a.type||'')) return `<a href="${escapeAttr(url)}" target="_blank" rel="noopener"><img class="dm-img" src="${escapeAttr(url)}" alt="${escapeAttr(a.name)}"></a>`;
+  const kb = a.size ? (a.size>1048576 ? (a.size/1048576).toFixed(1)+' МБ' : Math.max(1,Math.round(a.size/1024))+' КБ') : '';
+  return `<a class="dm-file" href="${escapeAttr(url)}" target="_blank" rel="noopener">📎 <span>${esc(a.name)}</span><small>${kb}</small></a>`;
+}
+async function checkDmUnread(){
+  if(isLoggedOut() || document.getElementById('dmMsgs')) return;
+  try{
+    const r = await apiFetch('/community/dm/unread', { method:'GET', __noFailover:true });
+    dmSetBadge(r.unread||0);
+    const imp = (r.important||[]).filter(m=>!__dm.notifiedIds[m.id]);
+    if(imp.length){
+      imp.forEach(m=>{ __dm.notifiedIds[m.id]=1; });
+      const m = imp[imp.length-1];
+      showToast((m.priority==='critical'?'❗ ':'📩 ')+'Сообщение от XCAR: '+String(m.text||'вложение').slice(0,80));
+    } else if((r.unread||0) > __dm.lastUnread){
+      showToast('📩 Новое сообщение от администрации XCAR');
+    }
+    __dm.lastUnread = r.unread||0;
+  }catch(e){}
+}
+function dmRender(scroll){
+  const box = document.getElementById('dmMsgs'); if(!box) return;
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  let lastDay='';
+  const pinned = __dm.messages.filter(m=>m.pinned);
+  const pinEl = document.getElementById('dmPinned');
+  if(pinEl) pinEl.innerHTML = pinned.length ? `<div class="dm-pin">📌 <b>Закреплено:</b> ${esc(String(pinned[pinned.length-1].text||'вложение').slice(0,140))}</div>` : '';
+  box.innerHTML = __dm.messages.length ? __dm.messages.map(m=>{
+    const day = gcDay(m.createdAt); const sep = day!==lastDay ? `<div class="gc-day">${day}</div>` : ''; lastDay = day;
+    const mine = m.from==='user';
+    const pr = m.priority==='critical' ? '<div class="dm-prio crit">❗ Срочно</div>' : m.priority==='high' ? '<div class="dm-prio">⚠️ Важно</div>' : '';
+    return `${sep}<div class="gc-msg ${mine?'mine':'admin'}">
+      ${mine?'':`<div class="gc-who">${esc(m.adminName||'Администрация XCAR')}<span class="gc-admin-badge">XCAR</span></div>`}
+      ${pr}
+      ${m.text?`<div class="gc-txt">${esc(m.text)}</div>`:''}
+      ${(m.attachments||[]).map(dmAttHtml).join('')}
+      <div class="gc-tm">${gcTime(m.createdAt)}${mine?(m.read?' · ✓✓ прочитано':' · ✓ доставлено'):''}</div>
+    </div>`;
+  }).join('') : `<div class="gc-empty"><div>✉️</div>Здесь ваша переписка с администрацией XCAR.<br>Напишите вопрос — вам ответят в этом окне.</div>`;
+  if(scroll || nearBottom) box.scrollTop = box.scrollHeight;
+}
+async function dmPoll(first){
+  if(!document.getElementById('dmMsgs')){ clearInterval(__dm.timer); __dm.timer=null; return; }
+  try{
+    const r = await apiFetch('/community/dm?read=1', { method:'GET', __noFailover:true });
+    const sig = JSON.stringify((r.messages||[]).map(m=>m.id+(m.read?1:0)+(m.pinned?1:0)));
+    if(first || sig!==__dm.sig){ __dm.sig = sig; __dm.messages = r.messages||[]; dmRender(first); }
+    dmSetBadge(0); __dm.lastUnread = 0;
+  }catch(e){
+    if(first){ const box=document.getElementById('dmMsgs'); if(box) box.innerHTML = `<div class="gc-empty"><div>⚠️</div>${esc(e.message||'Нет связи с сервером')}</div>`; }
+  }
+}
+function openAdminMessages(){
+  if(isLoggedOut()){ showToast('Войдите в аккаунт, чтобы переписываться с администрацией'); return; }
+  __dm.files = [];
+  openSheet(`
+    <div class="sheet-handle"></div>
+    <div class="sheet-head"><div class="sheet-title">✉️ Сообщения XCAR</div>
+      <div class="sheet-head-actions">${iconBtn('close','closeSheet()','Закрыть')}</div>
+    </div>
+    <div class="sheet-body">
+      <div class="gc-wrap">
+        <div class="gc-status">Личная переписка с администрацией XCAR: вопросы по работе приложения, оплате и тарифам.</div>
+        <div id="dmPinned"></div>
+        <div class="gc-msgs" id="dmMsgs"><div class="gc-empty">Загрузка сообщений…</div></div>
+        <div id="dmFiles" class="dm-files"></div>
+        <div class="gc-input">
+          <label class="gc-send dm-attach" title="Прикрепить файл"><input type="file" multiple style="display:none" onchange="dmPickFiles(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></label>
+          <textarea id="dmText" rows="1" placeholder="Сообщение администрации…" maxlength="5000" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendAdminMessage();}" oninput="this.style.height='auto';this.style.height=Math.min(120,this.scrollHeight)+'px'"></textarea>
+          <button class="gc-send" id="dmSendBtn" onclick="sendAdminMessage()" title="Отправить"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg></button>
+        </div>
+      </div>
+    </div>`);
+  dmPoll(true);
+  clearInterval(__dm.timer);
+  __dm.timer = setInterval(()=>dmPoll(false), 5000);
+}
+function dmRenderFiles(){
+  const el = document.getElementById('dmFiles'); if(!el) return;
+  el.innerHTML = __dm.files.map((f,i)=>`<span class="dm-chip">📎 ${esc(f.name)} <a onclick="__dm.files.splice(${i},1);dmRenderFiles()">✕</a></span>`).join('');
+}
+function dmPickFiles(input){
+  const list = Array.from(input.files||[]).slice(0, 5 - __dm.files.length);
+  list.forEach(f=>{
+    if(f.size > 10*1024*1024){ showToast('Файл «'+f.name+'» больше 10 МБ'); return; }
+    const rd = new FileReader();
+    rd.onload = ()=>{ __dm.files.push({ name:f.name, type:f.type, dataUrl: rd.result }); dmRenderFiles(); };
+    rd.readAsDataURL(f);
+  });
+  input.value = '';
+}
+async function sendAdminMessage(){
+  const ta = document.getElementById('dmText'); if(!ta || __dm.sending) return;
+  const text = ta.value.trim();
+  if(!text && !__dm.files.length) return;
+  __dm.sending = true;
+  const btn = document.getElementById('dmSendBtn'); if(btn) btn.disabled = true;
+  try{
+    await apiFetch('/community/dm', { method:'POST', body: JSON.stringify({ text, attachments: __dm.files }), __noFailover:true });
+    ta.value=''; ta.style.height=''; __dm.files=[]; dmRenderFiles();
+    await dmPoll(true);
+  }catch(e){ showToast(e.message || 'Не удалось отправить'); }
+  __dm.sending = false; if(btn) btn.disabled = false;
+}
+
 
 function openSettings(){
   openSheet(`
@@ -7235,6 +7474,7 @@ function openSettings(){
     <div class="sheet-body">
       ${settingsMenuItem('👤','Аккаунт', authGetUser() ? (authGetUser().companyName || authGetUser().fullName || 'Мой аккаунт') : 'Не авторизован', `openAccountSettings()`)}
       ${settingsMenuItem('💎','Тариф', SUBSCRIPTION ? (SUBSCRIPTION.planName||'—')+' · '+(SUBSCRIPTION.status==='expired'?'истёк':SUBSCRIPTION.daysLeft+' дн.') : 'Подписка и лимит машин', `openTariffs()`)}
+      ${settingsMenuItem('✉️','Сообщения XCAR', 'Личная переписка с администрацией', `openAdminMessages()`)}
       ${settingsMenuItem('💬','Общая группа', 'Чат всех пользователей XCAR', `openGroupChat()`)}
       ${settingsMenuItem('📢','Новости', 'Новости от администратора и ваши оценки', `openNewsHistory()`)}
       <div class="settings-item">
@@ -7405,7 +7645,7 @@ async function submitSupportTicket(){
   if(!message){ showToast('Опишите проблему'); return; }
   try{
     await apiFetch('/support', { method:'POST', body: JSON.stringify({ message, contactPhone }) });
-    showToast('Сообщение отправлено в поддержку');
+    showToast('Сообщение отправлено — ответ придёт в «Сообщения XCAR»');
     closeSheet();
   }catch(e){
     showToast(e.message || 'Не удалось отправить сообщение');
@@ -10037,7 +10277,7 @@ async function startApp(){
   checkOneHourReminders();
   checkEmailBackup();
   checkOwnerAlarms();
-  setTimeout(()=>{ checkServerNews(true); checkGroupUnread(); }, 2500);
+  setTimeout(()=>{ checkServerNews(true); checkGroupUnread(); checkDmUnread(); }, 2500);
   // keep return-timers fresh and check WhatsApp reminders without disturbing an open form
   setInterval(()=>{
     const overlayOpen = document.getElementById('overlay').classList.contains('show');
